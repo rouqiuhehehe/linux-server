@@ -16,5 +16,9 @@ int main ()
     char a = 0;
     char b = 0;
     char c = 0;
+
+    int aa = 1;
+    int *bb = &aa;
+    long *cc = &aa;
     return 0;
 }
