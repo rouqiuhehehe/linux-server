@@ -11,8 +11,11 @@ foreach (FILE ${SOURCE_SRC})
 
     if (${TARGET_NAME} STREQUAL "icmp-arp-udp-protocol")
         target_include_directories(${TARGET_NAME} PUBLIC /usr/local/include)
-#        target_link_libraries(${TARGET_NAME} netmap)
+        #        target_link_libraries(${TARGET_NAME} netmap)
     endif ()
 endforeach ()
 
+target_link_libraries(uring-server uring)
+
 add_subdirectory(dpdk-tcp)
+add_subdirectory(sendmsg)
