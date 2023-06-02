@@ -5,10 +5,24 @@
 #include <stdio.h>
 #include <arpa/inet.h>
 
+#define ENABLED_ICMP
+#define ENABLED_UDP
+
+#if defined(ENABLED_UDP) || defined(ENABLED_ICMP)
+#define ENABLED_SEND
+#endif
+
+#ifdef ENABLED_ICMP
+#include "ip-echo.h"
+#endif
+#ifdef ENABLED_UDP
+#include "udp.h"
+#endif
+
 #define MBUF_COUNT (4*1024)
 #define BUFFER_SIZE 32
 
-int dpdkPortId = 0;
+//192.168.231.80
 static const struct rte_eth_conf config = {
     .rxmode = {
         // 接收一个包最大的长度
@@ -16,13 +30,8 @@ static const struct rte_eth_conf config = {
         .max_rx_pkt_len = RTE_ETHER_MAX_LEN
     }
 };
-
-int main (int argc, char **argv)
+struct rte_mempool *initPort (int dpdkPortId)
 {
-    setbuf(stdout, 0);
-    if (rte_eal_init(argc, argv) < 0)
-        rte_exit(EXIT_FAILURE, "rte_eal_init fail");
-
     // 内存池名字，分配多少内存，一开始初始化多大（0默认），数据包能接收多大（0默认），每个mbuf数据缓冲区的大小，内存id
     struct rte_mempool *mBufPool = rte_pktmbuf_pool_create(
         "mBufPool",
@@ -32,17 +41,112 @@ int main (int argc, char **argv)
         RTE_MBUF_DEFAULT_BUF_SIZE,
         (int)rte_socket_id()
     );
-
+    int tx = 0, rx = 1;
+#ifdef ENABLED_SEND
+    tx = 1;
+#endif
     // 第几个网卡，网卡的接收队列数量，网卡的发送队列数量，网卡的配置
-    rte_eth_dev_configure(dpdkPortId, 1, 0, (const struct rte_eth_conf *)&config);
+    rte_eth_dev_configure(dpdkPortId, rx, tx, (const struct rte_eth_conf *)&config);
     // 第几个网卡，第几个队列，分配多少个描述符的数量(不大于RTE_MBUF_DEFAULT_BUF_SIZE参数的数量就行)，id，配置，内存池
-    rte_eth_rx_queue_setup(dpdkPortId, 0, 128, rte_eth_dev_socket_id(dpdkPortId), NULL, mBufPool);
+    rte_eth_rx_queue_setup(dpdkPortId, 0, 1024, rte_eth_dev_socket_id(dpdkPortId), NULL, mBufPool);
+#ifdef ENABLED_SEND
+    rte_eth_tx_queue_setup(dpdkPortId, 0, 1024, rte_eth_dev_socket_id(dpdkPortId), NULL);
+#endif
     rte_eth_dev_start(dpdkPortId);
 
+    return mBufPool;
+}
+
+struct rte_mbuf *mBufAlloc (struct rte_mempool *mBufPool, const uint32_t totLen)
+{
+    struct rte_mbuf *buf = rte_pktmbuf_alloc(mBufPool);
+    if (!buf)
+        rte_exit(EXIT_FAILURE, "rte_pktmbuf_alloc\n");
+
+    buf->data_len = totLen;
+    buf->pkt_len = totLen;
+
+    return buf;
+}
+
+#ifdef ENABLED_ICMP
+static struct rte_mbuf *icmpEchoPkg (
+    struct rte_mempool *mBufPool,
+    uint8_t *srcMac,
+    uint8_t *dstMac,
+    uint32_t srcAddr,
+    uint32_t dstAddr,
+    uint16_t id,
+    uint16_t seq
+)
+{
+    struct rte_mbuf *buf = mBufAlloc(mBufPool, ICMP_HEADER_TOT_LEN);
+    uint8_t *pktData = rte_pktmbuf_mtod(buf, uint8_t *);
+
+    struct rte_ether_hdr *etherHdr = (struct rte_ether_hdr *)pktData;
+    struct rte_ipv4_hdr *ipv4Hdr = (struct rte_ipv4_hdr *)(etherHdr + 1);
+    struct rte_icmp_hdr *icmpHdr = (struct rte_icmp_hdr *)(ipv4Hdr + 1);
+
+    etherEcho(etherHdr, srcMac, dstMac);
+    ipEcho(
+        ipv4Hdr,
+        srcAddr,
+        dstAddr,
+        IPPROTO_ICMP,
+        ICMP_HEADER_TOT_LEN - ETHER_HEADER_TOT_LEN);
+    icmpEcho(icmpHdr, id, seq);
+
+    return buf;
+}
+#endif
+
+#ifdef ENABLED_UDP
+static struct rte_mbuf *udpEchoPkg (
+    struct rte_mempool *mBufPool,
+    uint8_t *srcMac,
+    uint8_t *dstMac,
+    uint32_t srcAddr,
+    uint32_t dstAddr,
+    uint16_t srcPort,
+    uint16_t dstPort,
+    const uint8_t *data,
+    uint32_t len
+)
+{
+    const uint32_t totLen = len + UDP_HEADER_TOT_LEN;
+    struct rte_mbuf *buf = mBufAlloc(mBufPool, totLen);
+    uint8_t *pktData = rte_pktmbuf_mtod(buf, uint8_t *);
+
+    struct rte_ether_hdr *etherHdr = (struct rte_ether_hdr *)pktData;
+    struct rte_ipv4_hdr *ipv4Hdr = (struct rte_ipv4_hdr *)(etherHdr + 1);
+    struct rte_udp_hdr *udpHdr = (struct rte_udp_hdr *)(ipv4Hdr + 1);
+
+    etherEcho(etherHdr, srcMac, dstMac);
+    ipEcho(
+        ipv4Hdr,
+        srcAddr,
+        dstAddr,
+        IPPROTO_UDP,
+        totLen - ETHER_HEADER_TOT_LEN);
+    udpSend(udpHdr, srcPort, dstPort, data, len, ipv4Hdr);
+
+    return buf;
+}
+#endif
+// 192.168.253.201
+int main (int argc, char **argv)
+{
+    setbuf(stdout, 0);
+    if (rte_eal_init(argc, argv) < 0)
+        rte_exit(EXIT_FAILURE, "rte_eal_init fail");
+
+    int dpdkPortId = 0;
+    struct rte_mempool *mBufPool = initPort(dpdkPortId);
+
+    // 此处使用的内存池，不涉及到内存拷贝
+    struct rte_mbuf *buffers[BUFFER_SIZE];
     while (1)
     {
-        // 此处使用的内存池，不涉及到内存拷贝
-        struct rte_mbuf *buffers[BUFFER_SIZE];
         unsigned num = rte_eth_rx_burst(dpdkPortId, 0, buffers, BUFFER_SIZE);
 
         unsigned i;
@@ -54,9 +158,10 @@ int main (int argc, char **argv)
                 struct rte_ipv4_hdr *ipv4Hdr = rte_pktmbuf_mtod_offset(
                     buffers[i],
                     struct rte_ipv4_hdr *,
-                    sizeof(struct rte_ether_hdr)
+                    ETHER_HEADER_TOT_LEN
                 );
 
+#ifdef ENABLED_UDP
                 // 因为只有一个字节  所以不需要转
                 if (ipv4Hdr->next_proto_id == IPPROTO_UDP)
                 {
@@ -65,8 +170,48 @@ int main (int argc, char **argv)
                     *((char *)udpHdr + len) = '\0';
 
                     printf("data: %s\n", (char *)(udpHdr + 1));
+                    struct rte_mbuf *buf = udpEchoPkg(
+                        mBufPool,
+                        etherHdr->d_addr.addr_bytes,
+                        etherHdr->s_addr.addr_bytes,
+                        ipv4Hdr->dst_addr,
+                        ipv4Hdr->src_addr,
+                        udpHdr->dst_port,
+                        udpHdr->src_port,
+                        (uint8_t *)(udpHdr + 1),
+                        len - sizeof(struct rte_udp_hdr)
+                    );
+
+                    rte_eth_tx_burst(dpdkPortId, 0, &buf, 1);
+                    rte_pktmbuf_free(buf);
                 }
+#endif
+#ifdef ENABLED_ICMP
+                else if (ipv4Hdr->next_proto_id == IPPROTO_ICMP)
+                {
+                    struct rte_icmp_hdr *icmpHdr = (struct rte_icmp_hdr *)(ipv4Hdr + 1);
+
+                    if (icmpHdr->icmp_type == RTE_IP_ICMP_ECHO_REQUEST)
+                    {
+                        struct rte_mbuf *buf = icmpEchoPkg(
+                            mBufPool,
+                            etherHdr->d_addr.addr_bytes,
+                            etherHdr->s_addr.addr_bytes,
+                            ipv4Hdr->dst_addr,
+                            ipv4Hdr->src_addr,
+                            icmpHdr->icmp_ident,
+                            icmpHdr->icmp_seq_nb
+                        );
+
+                        rte_eth_tx_burst(dpdkPortId, 0, &buf, 1);
+
+                        rte_pktmbuf_free(buf);
+                    }
+                }
+#endif
             }
+
+            rte_pktmbuf_free(buffers[i]);
         }
     }
 }

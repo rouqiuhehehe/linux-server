@@ -1,40 +1,87 @@
 //
-// Created by Administrator on 2023/4/27.
+// Created by Yoshiki on 2023/6/2.
 //
-#include "threadpool.h"
+
+#include "global.h"
 #include <iostream>
+#include <utility>
 
-class MyThreadPool : public ThreadPool
+class Widget;
+class WidgetPrivate : public BasePrivate
 {
+public:
+    WidgetPrivate (int w, Widget *parent);
+    ~WidgetPrivate () noexcept override = default;
 protected:
-    bool beforeRunTask (const TaskFunPtr &task) override
-    {
-        std::cout << (task->expireTime() - getNowMs()) << std::endl;
-
-        return true;
-    }
-    void afterRunTask (const ThreadPool::TaskFunPtr &task) override
-    {
-        std::cout << task->expireTime() << std::endl;
-    }
-
+    DECLARE_PUBLIC_Q(Widget);
+private:
+    int width;
 };
+class Widget : public Base
+{
+    DECLARE_PRIVATE_D(Widget);
+public:
+    explicit Widget (int w)
+        : Base(new WidgetPrivate(w, this)) {};
+    ~Widget () noexcept override = default;
+
+    int width () const
+    {
+        const D_PTR(Widget);
+        return d->width;
+    }
+protected:
+    explicit Widget (WidgetPrivate *d)
+        : Base(d) {}
+};
+WidgetPrivate::WidgetPrivate (int w, Widget *parent)
+    : width(w), BasePrivate(parent) {}
+
+class Label;
+class LabelPrivate : public WidgetPrivate
+{
+    DECLARE_PUBLIC_Q(Label);
+public:
+    LabelPrivate (std::string title, int w, Label *parent);
+    ~LabelPrivate () noexcept override = default;
+
+    int a () const noexcept;
+private:
+    std::string title;
+};
+
+class Label final : public Widget
+{
+    DECLARE_PRIVATE_D(Label);
+public:
+    Label (const std::string &title, int w)
+        : Widget(new LabelPrivate(title, w, this)) {}
+    ~Label () noexcept final = default;
+
+    const std::string &title () const
+    {
+        const D_PTR(Label);
+
+        d->a();
+        return d->title;
+    }
+};
+
+LabelPrivate::LabelPrivate (std::string title, int w, Label *parent)
+    : title(std::move(title)), WidgetPrivate(w, parent) {}
+int LabelPrivate::a () const noexcept
+{
+    const Q_PTR(Label);
+    std::cout << "test q : " << q->width() << std::endl;
+
+    return 0;
+}
+
 int main ()
 {
-    MyThreadPool threadPool;
+    Label label("顶顶顶顶顶顶顶顶顶顶顶", 100);
+    std::cout << "title: " << label.title() << "\twidth: " << label.width() << std::endl;
 
-    threadPool.start();
-    auto c = threadPool.execf(
-        1000, std::bind(
-            [] (int a) {
-                std::cout << a << std::endl;
-
-                return 20;
-            }, 1
-        ));
-    threadPool.waitForAllDone();
-    threadPool.stop();
-
-    std::cout << c.get() << std::endl;
+    std::cout << "address : " << Utils::addressOf(label) << std::endl;
     return 0;
 }
