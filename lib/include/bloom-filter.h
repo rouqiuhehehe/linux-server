@@ -55,7 +55,7 @@ public:
         );
     };
     inline const TableType *tableData () const { return bitTable.data(); };
-    inline std::size_t hashCount () const { numOfHash; };
+    inline std::size_t hashCount () const { return numOfHash; };
 
     inline void clear ();
 
@@ -78,7 +78,12 @@ public:
 
     inline virtual bool contains (const TableType *key, std::size_t len) const;
     template <class T>
-    inline bool contains (const T &t) const { return contains(reinterpret_cast<const TableType *>(t), sizeof(T)); };
+    inline bool contains (const T &t) const
+    {
+        return contains(
+            reinterpret_cast<const TableType *>(t),
+            sizeof(T));
+    };
     inline bool contains (const std::string &t) const { return contains(t.data(), t.size()); };
     inline bool contains (
         const char *data,
@@ -130,11 +135,17 @@ protected:
     virtual inline void generateUniqueSalt ();
 
     // hash函数
-    virtual inline BloomSaltType hash (const unsigned char *begin,
+    virtual inline BloomSaltType hash (
+        const unsigned char *begin,
         std::size_t remaining_length,
-        BloomSaltType hash) const;
+        BloomSaltType hash
+    ) const;
 
-    virtual inline void computeIndices (const BloomSaltType &hash, std::size_t &tableIndex, std::size_t &bitIndex) const
+    virtual inline void computeIndices (
+        const BloomSaltType &hash,
+        std::size_t &tableIndex,
+        std::size_t &bitIndex
+    ) const
     {
         tableIndex = hash % tableSize;
         bitIndex = tableIndex % bitsPerChar;
@@ -259,7 +270,8 @@ void BloomFilter <num, falsePositiveRate, seed>::generateUniqueSalt ()
         std::copy(predefinedSalt, predefinedSalt + numOfHash, std::back_inserter(salt));
 
         for (std::size_t i = 0; i < salt.size(); ++i)
-            salt[i] = salt[i] * salt[(i + 3) % salt.size()] + static_cast<BloomSaltType>(randomSeed);
+            salt[i] =
+                salt[i] * salt[(i + 3) % salt.size()] + static_cast<BloomSaltType>(randomSeed);
     }
         // 如果提供的盐小于需要的hash函数数量，则随即填充
     else
@@ -324,10 +336,13 @@ void BloomFilter <num, falsePositiveRate, seed>::clear ()
     insertElementCount = 0;
 }
 template <NumType num, NumType falsePositiveRate, NumType seed>
-typename BloomFilter <num, falsePositiveRate, seed>::BloomSaltType BloomFilter <num, falsePositiveRate, seed>::hash (
+typename BloomFilter <num, falsePositiveRate, seed>::BloomSaltType BloomFilter <num,
+                                                                                falsePositiveRate,
+                                                                                seed>::hash (
     const unsigned char *begin,
     std::size_t remaining_length,
-    BloomFilter::BloomSaltType hash) const
+    BloomFilter::BloomSaltType hash
+) const
 {
     const unsigned char *itr = begin;
     unsigned int loop = 0;
@@ -388,7 +403,10 @@ typename BloomFilter <num, falsePositiveRate, seed>::BloomSaltType BloomFilter <
     return hash;
 }
 template <NumType num, NumType falsePositiveRate, NumType seed>
-void BloomFilter <num, falsePositiveRate, seed>::insert (const BloomFilter::TableType *key, std::size_t len)
+void BloomFilter <num, falsePositiveRate, seed>::insert (
+    const BloomFilter::TableType *key,
+    std::size_t len
+)
 {
     std::size_t tableIndex = 0;
     std::size_t bitIndex = 0;
@@ -405,8 +423,10 @@ void BloomFilter <num, falsePositiveRate, seed>::insert (const BloomFilter::Tabl
     ++insertElementCount;
 }
 template <NumType num, NumType falsePositiveRate, NumType seed>
-bool BloomFilter <num, falsePositiveRate, seed>::contains (const BloomFilter::TableType *key,
-    const std::size_t len) const
+bool BloomFilter <num, falsePositiveRate, seed>::contains (
+    const BloomFilter::TableType *key,
+    const std::size_t len
+) const
 {
     std::size_t tableIndex = 0;
     std::size_t bitIndex = 0;

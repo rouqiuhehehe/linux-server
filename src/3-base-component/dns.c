@@ -7,7 +7,7 @@
 #include <time.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
-#include "include/async.h"
+#include "async.h"
 #include <fcntl.h>
 
 #define DNS_HOST "114.114.114.114"
@@ -221,14 +221,14 @@ static int is_pointer (int in)
 }
 
 static void dnsParseName (
-    unsigned char *chunk,
-    unsigned char *ptr,
+    const unsigned char *chunk,
+    const unsigned char *ptr,
     char *out,
     int *len
 )
 {
 
-    int flag = 0, n = 0, alen = 0;
+    int flag = 0, n = 0;
     char *pos = out + (*len);
 
     while (1)
@@ -257,7 +257,7 @@ static void dnsParseName (
             *len += flag;
             if ((int)ptr[0] != 0)
             {
-                memcpy(pos, ".", 1);
+                strcpy(pos, ".");
                 pos += 1;
                 (*len) += 1;
             }
@@ -272,7 +272,7 @@ static int dnsResponseParse (const char *response, struct DnsAnswer *dnsAnswer)
     if (response == NULL)
         return -1;
     struct DnsHeader *dnsHeader = malloc(sizeof(struct DnsHeader));
-    const unsigned char *ptr = response;
+    const unsigned char *ptr = (const uint8_t *)response;
     // 头部分
     dnsHeader->transactionId = ntohs(*(unsigned short *)ptr);
     ptr += 2;
@@ -325,7 +325,7 @@ static int dnsResponseParse (const char *response, struct DnsAnswer *dnsAnswer)
             *dnsAnswerBody = malloc(sizeof(struct DnsAnswerBody));
         dnsAnswerBody->name = malloc(128);
         len = 0;
-        dnsParseName(response, ptr, dnsAnswerBody->name, &len);
+        dnsParseName((uint8_t *)response, (uint8_t *)ptr, dnsAnswerBody->name, &len);
         ptr += 2;
 
         dnsAnswerBody->qType = ntohs(*(unsigned short *)ptr);
@@ -343,7 +343,7 @@ static int dnsResponseParse (const char *response, struct DnsAnswer *dnsAnswer)
                 len = 0;
                 dnsAnswerBody->data =
                     malloc(255);
-                dnsParseName(response, ptr, dnsAnswerBody->data, &len);
+                dnsParseName((uint8_t *)response, (uint8_t *)ptr, dnsAnswerBody->data, &len);
                 break;
             case DNS_HOST_T:
                 // 如果是ip，dataLen一定是4
@@ -358,7 +358,7 @@ static int dnsResponseParse (const char *response, struct DnsAnswer *dnsAnswer)
                 }
         }
         ptr += dnsAnswerBody->dataLen;
-        INSERT_LIST(dnsAnswerBody, dnsAnswer->body);
+        INSERT_LIST(dnsAnswerBody, dnsAnswer->body)
     }
 
     return 0;
@@ -456,7 +456,7 @@ int main ()
 
     asyncIOInit(info, dnsParseCallback, dnsAnswer);
 
-    for (int i = 0; i < sizeof(domain) / sizeof(domain[0]); ++i)
+    for (uint32_t i = 0; i < sizeof(domain) / sizeof(domain[0]); ++i)
     {
         dnsConnection(domain[i], info);
     }

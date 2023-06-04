@@ -3,7 +3,10 @@ project(linux-server)
 set(EXECUTABLE_OUTPUT_PATH ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_CXX_STANDARD 11)
 
-function(executable)
+add_definitions(-Wunknown-pragmas)
+
+add_subdirectory(lib)
+function (executable)
     file(GLOB SOURCE_SRC "*.c" "*.cpp")
 
     foreach (FILE ${SOURCE_SRC})
@@ -12,12 +15,11 @@ function(executable)
 
         add_executable(${TARGET_NAME} ${FILE_NAME})
     endforeach ()
-endfunction()
+endfunction ()
 
 include_directories(lib/include)
 
 add_subdirectory(src)
-add_subdirectory(lib)
 #add_custom_target(ASSETS_COPY ALL VERBATIM COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/assets" "${CMAKE_BINARY_DIR}/assets")
 
 # 拷贝文件夹到指定的目录

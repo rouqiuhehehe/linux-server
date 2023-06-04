@@ -4,9 +4,7 @@
 #define NETMAP_WITH_LIBS
 
 #include <stdio.h>
-#include <unistd.h>
 #include <string.h>
-#include <stdlib.h>
 #include <net/netmap_user.h>
 #include <sys/epoll.h>
 #include <arpa/inet.h>
@@ -208,9 +206,11 @@ static int str2mac (unsigned char *mac, char *str)
     return 0;
 }
 
-void echoArpPackage (struct ArpPackage *desc,
+void echoArpPackage (
+    struct ArpPackage *desc,
     struct ArpPackage *src,
-    char *hmac)
+    char *hmac
+)
 {
     memcpy(desc, src, sizeof(struct ArpPackage));
     memcpy(desc->etherHeader.targetIP, src->etherHeader.sourceIP, ETHER_IP_LEN);
@@ -280,7 +280,11 @@ int main ()
                     struct UdpPackage echoUdp;
                     echoUdpPackage(&echoUdp, udp);
                     // 回包
-                    nm_inject(nm, &echoUdp, sizeof(struct UdpPackage) + strlen(echoUdp.data));
+                    nm_inject(
+                        nm,
+                        &echoUdp,
+                        sizeof(struct UdpPackage) + strlen((const char *)echoUdp.data)
+                    );
                 }
                 else if (udp->ipHeader.protocol == IPPROTO_ICMP)
                 {

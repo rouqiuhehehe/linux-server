@@ -5,7 +5,7 @@
 #ifndef LINUX_SERVER_SRC_3_BASE_COMPONENT_DPDK_TCP_UDP_H_
 #define LINUX_SERVER_SRC_3_BASE_COMPONENT_DPDK_TCP_UDP_H_
 #include "ip-echo.h"
-#include <dpdk/rte_eal.h>
+
 #define UDP_HEADER_TOT_LEN ICMP_HEADER_TOT_LEN
 
 static inline void udpSend (

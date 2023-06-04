@@ -7,8 +7,9 @@
 
 #define ENABLED_ICMP
 #define ENABLED_UDP
+#define ENABLED_ARP
 
-#if defined(ENABLED_UDP) || defined(ENABLED_ICMP)
+#if defined(ENABLED_UDP) || defined(ENABLED_ICMP) || defined(ENABLED_ARP)
 #define ENABLED_SEND
 #endif
 
@@ -17,6 +18,12 @@
 #endif
 #ifdef ENABLED_UDP
 #include "udp.h"
+#endif
+
+#ifdef ENABLED_ARP
+#include "arp.h"
+
+#define HOST_IP "192.168.253.201"
 #endif
 
 #define MBUF_COUNT (4*1024)
@@ -32,7 +39,7 @@ static const struct rte_eth_conf config = {
 };
 struct rte_mempool *initPort (int dpdkPortId)
 {
-    // 内存池名字，分配多少内存，一开始初始化多大（0默认），数据包能接收多大（0默认），每个mbuf数据缓冲区的大小，内存id
+    // 内存池名字，mbuf的数量，一开始初始化多大（0默认），数据包能接收多大（0默认），每个mbuf数据缓冲区的大小，内存id
     struct rte_mempool *mBufPool = rte_pktmbuf_pool_create(
         "mBufPool",
         MBUF_COUNT,
@@ -87,7 +94,7 @@ static struct rte_mbuf *icmpEchoPkg (
     struct rte_ipv4_hdr *ipv4Hdr = (struct rte_ipv4_hdr *)(etherHdr + 1);
     struct rte_icmp_hdr *icmpHdr = (struct rte_icmp_hdr *)(ipv4Hdr + 1);
 
-    etherEcho(etherHdr, srcMac, dstMac);
+    etherEcho(etherHdr, srcMac, dstMac, RTE_ETHER_TYPE_IPV4);
     ipEcho(
         ipv4Hdr,
         srcAddr,
@@ -121,7 +128,7 @@ static struct rte_mbuf *udpEchoPkg (
     struct rte_ipv4_hdr *ipv4Hdr = (struct rte_ipv4_hdr *)(etherHdr + 1);
     struct rte_udp_hdr *udpHdr = (struct rte_udp_hdr *)(ipv4Hdr + 1);
 
-    etherEcho(etherHdr, srcMac, dstMac);
+    etherEcho(etherHdr, srcMac, dstMac, RTE_ETHER_TYPE_IPV4);
     ipEcho(
         ipv4Hdr,
         srcAddr,
@@ -129,6 +136,30 @@ static struct rte_mbuf *udpEchoPkg (
         IPPROTO_UDP,
         totLen - ETHER_HEADER_TOT_LEN);
     udpSend(udpHdr, srcPort, dstPort, data, len, ipv4Hdr);
+
+    return buf;
+}
+#endif
+
+#ifdef ENABLED_ARP
+static struct rte_mbuf *arpEchoSend (
+    struct rte_mempool *mBufPool,
+    uint16_t opcode,
+    uint8_t *srcMac,
+    uint8_t *dstMac,
+    uint32_t srcIp,
+    uint32_t dstIp
+)
+{
+    const uint32_t totLen = ARP_HEADER_TOT_LEN;
+    struct rte_mbuf *buf = mBufAlloc(mBufPool, totLen);
+    uint8_t *pktData = rte_pktmbuf_mtod(buf, uint8_t *);
+
+    struct rte_ether_hdr *etherHdr = (struct rte_ether_hdr *)pktData;
+    struct rte_arp_hdr *arpHdr = (struct rte_arp_hdr *)(etherHdr + 1);
+
+    etherEcho(etherHdr, srcMac, dstMac, RTE_ETHER_TYPE_ARP);
+    arpSend(arpHdr, opcode, srcMac, dstMac, srcIp, dstIp);
 
     return buf;
 }
@@ -143,8 +174,14 @@ int main (int argc, char **argv)
     int dpdkPortId = 0;
     struct rte_mempool *mBufPool = initPort(dpdkPortId);
 
+#ifdef ENABLED_ARP
+    uint8_t srcMac[RTE_ETHER_ADDR_LEN] = {};
+    rte_eth_macaddr_get(dpdkPortId, (struct rte_ether_addr *)srcMac);
+#endif
     // 此处使用的内存池，不涉及到内存拷贝
     struct rte_mbuf *buffers[BUFFER_SIZE];
+    printf("---------------\n");
+    printf("%s\n", srcMac);
     while (1)
     {
         unsigned num = rte_eth_rx_burst(dpdkPortId, 0, buffers, BUFFER_SIZE);
@@ -210,6 +247,34 @@ int main (int argc, char **argv)
                 }
 #endif
             }
+#ifdef ENABLED_ARP
+            else if (etherHdr->ether_type == htons(RTE_ETHER_TYPE_ARP))
+            {
+                struct rte_arp_hdr *arpHdr = rte_pktmbuf_mtod_offset(
+                    buffers[i],
+                    struct rte_arp_hdr *,
+                    ETHER_HEADER_TOT_LEN
+                );
+                struct in_addr inAddr = {};
+                inAddr.s_addr = arpHdr->arp_data.arp_tip;
+                char *ip = inet_ntoa(inAddr);
+
+                if (strcmp(HOST_IP, ip) == 0 && arpHdr->arp_opcode == htons(RTE_ARP_OP_REQUEST))
+                {
+                    struct rte_mbuf *buf = arpEchoSend(
+                        mBufPool,
+                        RTE_ARP_OP_REPLY,
+                        srcMac,
+                        arpHdr->arp_data.arp_sha.addr_bytes,
+                        arpHdr->arp_data.arp_tip,
+                        arpHdr->arp_data.arp_sip
+                    );
+
+                    rte_eth_tx_burst(dpdkPortId, 0, &buf, 1);
+                    rte_pktmbuf_free(buf);
+                }
+            }
+#endif
 
             rte_pktmbuf_free(buffers[i]);
         }

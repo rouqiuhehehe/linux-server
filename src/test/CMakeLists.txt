@@ -1,7 +1,5 @@
 file(GLOB SOURCE_SRC "*.c" "*.cpp")
 
-message("${SOURCE_SRC} ------- ")
-
 add_library(hook SHARED hook.c)
 target_link_libraries(hook dl)
 

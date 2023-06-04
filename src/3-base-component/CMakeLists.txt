@@ -1,3 +1,6 @@
+add_subdirectory(dpdk-tcp)
+add_subdirectory(sendmsg)
+
 file(GLOB SOURCE_SRC "*.c" "*.cpp")
 
 foreach (FILE ${SOURCE_SRC})
@@ -15,7 +18,4 @@ foreach (FILE ${SOURCE_SRC})
     endif ()
 endforeach ()
 
-target_link_libraries(uring-server uring)
-
-add_subdirectory(dpdk-tcp)
-add_subdirectory(sendmsg)
+#target_link_libraries(uring-server uring)

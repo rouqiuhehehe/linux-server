@@ -37,11 +37,16 @@ static uint16_t icmpCheckSum (uint16_t *icmpHdr, int count)
     return ~sum;
 
 }
-static inline void etherEcho (struct rte_ether_hdr *etherHdr, uint8_t *srcMac, uint8_t *dstMac)
+static inline void etherEcho (
+    struct rte_ether_hdr *etherHdr,
+    uint8_t *srcMac,
+    uint8_t *dstMac,
+    int type
+)
 {
     rte_memcpy(etherHdr->s_addr.addr_bytes, srcMac, RTE_ETHER_ADDR_LEN);
     rte_memcpy(etherHdr->d_addr.addr_bytes, dstMac, RTE_ETHER_ADDR_LEN);
-    etherHdr->ether_type = htons(RTE_ETHER_TYPE_IPV4);
+    etherHdr->ether_type = htons(type);
 }
 
 static inline void ipEcho (

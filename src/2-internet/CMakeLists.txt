@@ -1,6 +1,5 @@
 file(GLOB SOURCE_SRC "*.c" "*.cpp")
 
-message("${SOURCE_SRC} ------- ")
 foreach (FILE ${SOURCE_SRC})
     string(REGEX REPLACE ".*/(.*).([^.]+)" "\\1" TARGET_NAME ${FILE})
     string(REGEX REPLACE ".*/(.*)" "\\1" FILE_NAME ${FILE})
