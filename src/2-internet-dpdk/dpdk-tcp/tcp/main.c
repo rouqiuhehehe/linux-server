@@ -63,22 +63,26 @@ struct rte_mempool *initDpdk (int argc, char **argv, int dpdkPortId)
 
 void mainLoop (int dpdkPortId)
 {
-    struct rte_mbuf *mbuf[BURST_SIZE];
+    struct rte_mbuf *rx[BURST_SIZE], *tx[BURST_SIZE];
     InOutRing *ring = getRingInstance();
     uint32_t num, i;
 
     while (1)
     {
-        num = rte_eth_rx_burst(dpdkPortId, 0, mbuf, BURST_SIZE);
-        CHECK_RET(num > BURST_SIZE || num < 0, "rte_eth_rx_burst error");
-        rte_ring_sp_enqueue_burst(ring->in, (void **)mbuf, BURST_SIZE, NULL);
+        num = rte_eth_rx_burst(dpdkPortId, 0, rx, BURST_SIZE);
+        CHECK_RET(num > BURST_SIZE, "rte_eth_rx_burst error");
+        if (num > 0)
+            rte_ring_sp_enqueue_burst(ring->in, (void **)rx, num, NULL);
 
         // 取出将要发送的包
-        num = rte_ring_sc_dequeue_burst(ring->out, (void **)mbuf, BURST_SIZE, NULL);
-        CHECK_RET(num > BURST_SIZE || num < 0, "rte_ring_sc_dequeue_burst error");
-        rte_eth_tx_burst(dpdkPortId, 0, mbuf, BURST_SIZE);
-        for (i = 0; i < num; ++i)
-            rte_pktmbuf_free(mbuf[i]);
+        num = rte_ring_sc_dequeue_burst(ring->out, (void **)tx, BURST_SIZE, NULL);
+        CHECK_RET(num > BURST_SIZE, "rte_ring_sc_dequeue_burst error");
+        if (num > 0)
+        {
+            rte_eth_tx_burst(dpdkPortId, 0, tx, num);
+            for (i = 0; i < num; ++i)
+                rte_pktmbuf_free(tx[i]);
+        }
 
         usleep(10);
     }
@@ -89,15 +93,14 @@ int main (int argc, char **argv)
     setbuf(stdout, 0);
 
     int dpdkPortId = 0;
-    char srcMac[RTE_ETHER_ADDR_LEN] = {};
 
     struct rte_mempool *mempool = initDpdk(argc, argv, dpdkPortId);
-    rte_eth_macaddr_get(dpdkPortId, (struct rte_ether_addr *)srcMac);
+    rte_eth_macaddr_get(dpdkPortId, (struct rte_ether_addr *)gSrcMac);
 
     uint32_t lcoreId = rte_lcore_id();
     lcoreId = rte_get_next_lcore(lcoreId, 1, 0);
     // 开线程处理
-    rte_eal_remote_launch(tcpProcess, mempool, lcoreId);
+    rte_eal_remote_launch(pkgProcess, mempool, lcoreId);
 
     mainLoop(dpdkPortId);
 

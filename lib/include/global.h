@@ -33,6 +33,32 @@ inline auto GetPtrHelper (const T &d) -> decltype(d.operator->()) { return d.ope
 
 #define Q_PTR(Class) Class *const q = q_fun()
 
+#define CLASS_IS_VALID(Class, exp) inline bool isValid () const noexcept override { \
+                                    const D_PTR(Class);                        \
+                                    return ((typeid(*d) == typeid(Class##Private)) && exp);   \
+                              }
+
+#define CLASS_DEFAULT_COPY_CONSTRUCTOR(Class, Parent) \
+    Class(const Class &rhs) : Parent(nullptr) { this->operator=(rhs); } \
+    Class &operator=(const Class &rhs) { if (this == &rhs) return *this;    \
+                                        d_ptr = std::unique_ptr <Class##Private>(new Class##Private(*rhs.d_fun())); \
+                                        return *this; }                 \
+
+#define CLASS_DEFAULT_MOVE_COPY_CONSTRUCTOR(Class, Parent) \
+    Class(Class &&rhs) noexcept : Parent(nullptr) { this->operator=(std::move(rhs)); } \
+    Class &operator=(Class &&rhs) noexcept { if (this == &rhs) return *this; \
+                                            d_ptr = std::move(rhs.d_ptr); \
+                                            return *this; }
+
+#define CLASS_DEFAULT_ALL_COPY_CONSTRUCTOR(Class, Parent) \
+    CLASS_DEFAULT_COPY_CONSTRUCTOR(Class, Parent)         \
+    CLASS_DEFAULT_MOVE_COPY_CONSTRUCTOR(Class, Parent)
+
+#define CLASS_COPY_CONSTRUCTOR_DISABLED(Class) \
+    Class(const Class &) = delete;             \
+    Class &operator=(const Class &) = delete;
+
+
 class Base;
 class BasePrivate
 {
@@ -50,7 +76,10 @@ class Base
 public:
     Base ()
         : d_ptr(new BasePrivate(this)) {}
+
     virtual ~Base () noexcept = default;
+
+    virtual inline bool isValid () const noexcept = 0;
 
 protected:
     explicit Base (BasePrivate *d)

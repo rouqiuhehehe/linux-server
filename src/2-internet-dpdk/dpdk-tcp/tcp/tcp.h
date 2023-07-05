@@ -19,13 +19,28 @@
 
 #define CHECK_RET(expr, msg) if(expr) rte_exit(EXIT_FAILURE, "%s:%s:%d"msg, __FILE__, __FUNCTION__, __LINE__)
 
+#define LL_ADD(item, list) do {        \
+    item->prev = NULL;                \
+    item->next = list;                \
+    if (list != NULL) list->prev = item; \
+    list = item;                    \
+} while(0)
+
+#define LL_REMOVE(item, list) do {        \
+    if (item->prev != NULL) item->prev->next = item->next;    \
+    if (item->next != NULL) item->next->prev = item->prev;    \
+    if (list == item) list = item->next;    \
+    item->prev = item->next = NULL;            \
+} while(0)
+
 typedef struct
 {
     struct rte_ring *in;
     struct rte_ring *out;
 } InOutRing;
+uint8_t gSrcMac[RTE_ETHER_ADDR_LEN];
 
 InOutRing *getRingInstance ();
 
-int tcpProcess (void *arg);
+_Noreturn int pkgProcess (void *arg);
 #endif //LINUX_SERVER_SRC_3_BASE_COMPONENT_DPDK_TCP_TCP_TCP_H_

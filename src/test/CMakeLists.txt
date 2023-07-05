@@ -14,4 +14,7 @@ target_link_libraries(cpp-thread-test pthread)
 
 add_executable(testcpp test.cpp)
 
+add_executable(mysql-connect-pool-test mysql-connect-pool-test.cpp)
+target_link_libraries(mysql-connect-pool-test mysqlconnectpool)
+
 add_subdirectory(dpdk-test)
