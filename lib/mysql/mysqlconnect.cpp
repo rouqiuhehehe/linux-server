@@ -15,14 +15,14 @@ MysqlConnectPrivate::MysqlConnectPrivate (
     const char *username,
     const char *password,
     const char *dbname,
+    bool debug,
     MysqlConnect *parent
 )
-    : BasePrivate(parent), db(mysql_init(nullptr))
+    : BasePrivate(parent), db(mysql_init(nullptr)), debug(debug)
 {
     if (!db)
     {
         PRINT_MYSQL_ERROR(db, "mysql_init error");
-        hasError = true;
         return;
     }
     unsigned option = 1;
@@ -33,14 +33,18 @@ MysqlConnectPrivate::MysqlConnectPrivate (
     if (!mysql_real_connect(db, host, username, password, dbname, port, nullptr, 0))
     {
         PRINT_MYSQL_ERROR(db, "mysql_real_connect error");
-        hasError = true;
+        return;
     }
+    isValid = true;
 }
 
 MysqlConnectPrivate::~MysqlConnectPrivate () noexcept
 {
     if (db)
+    {
         mysql_close(db);
+        db = nullptr;
+    }
 }
 
 MysqlConnect::MysqlConnect (MysqlConnectPrivate *d)
@@ -50,23 +54,19 @@ MysqlConnect::MysqlConnect (
     unsigned int port,
     const char *username,
     const char *password,
-    const char *dbname
+    const char *dbname,
+    bool debug
 )
-    : Base(new MysqlConnectPrivate(host, port, username, password, dbname, this))
-{
-    D_PTR(MysqlConnect);
-
-    if (d->hasError)
-    {
-        // 释放指针
-        d_ptr = nullptr;
-    }
-}
+    : Base(new MysqlConnectPrivate(host, port, username, password, dbname, debug, this)) {}
 bool MysqlConnect::exec (const char *sql)
 {
     D_PTR(MysqlConnect);
     // ping一下mysql 断开了可以自动重连
     mysql_ping(d->db);
+
+    if (d->debug)
+        PRINT_INFO("%s", sql);
+
     if (mysql_real_query(d->db, sql, std::strlen(sql)))
     {
         PRINT_MYSQL_ERROR(d->db, "mysql_real_query");
@@ -75,10 +75,13 @@ bool MysqlConnect::exec (const char *sql)
 
     return true;
 }
-MysqlResSet MysqlConnect::execQuery (const char *sql)
+MysqlResSetSharedPtr_t MysqlConnect::execQuery (const char *sql)
 {
     D_PTR(MysqlConnect);
     mysql_ping(d->db);
+
+    if (d->debug)
+        PRINT_INFO("%s", sql);
 
     if (mysql_real_query(d->db, sql, std::strlen(sql)))
     {
@@ -93,7 +96,7 @@ MysqlResSet MysqlConnect::execQuery (const char *sql)
         return {};
     }
 
-    return MysqlResSet(res);
+    return std::make_shared <MysqlResSet>(res);
 }
 bool MysqlConnect::transaction ()
 {

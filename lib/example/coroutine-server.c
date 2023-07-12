@@ -42,7 +42,7 @@ void serverReader (void *arg)
         }
     }
 }
-void server (void *arg)
+_Noreturn void server (void *arg)
 {
     uint16_t port = *(uint16_t *)arg;
     free(arg);

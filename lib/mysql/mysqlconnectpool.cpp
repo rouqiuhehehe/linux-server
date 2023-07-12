@@ -4,6 +4,7 @@
 
 #include "mysql/mysqlconnectpool.h"
 #include <algorithm>
+#include <functional>
 
 size_t MysqlConnectPoolPrivate::defaultMinConnectSize = 10;
 // 默认过期50秒
@@ -38,6 +39,7 @@ MysqlConnectPool::MysqlConnectPool (
     const char *username,
     const char *password,
     const char *dbname,
+    bool debug,
     size_t minConnectSize,
     size_t maxConnectSize,
     std::chrono::milliseconds expireTime
@@ -60,7 +62,7 @@ MysqlConnectPool::MysqlConnectPool (
 
     for (int i = 0; i < minConnectSize; ++i)
     {
-        auto *p = new MysqlConnect(host, port, username, password, dbname);
+        auto *p = new MysqlConnect(host, port, username, password, dbname, debug);
         if (!p->isValid())
         {
             delete p;
@@ -81,8 +83,8 @@ MysqlConnectPool::MysqlConnectPool (
 
     d->currConnectSize = d->freeList.size();
 
-    auto thread = std::thread(std::bind(&MysqlConnectPool::timerObserver, this));
-    thread.detach();
+    // auto thread = std::thread(std::bind(&MysqlConnectPool::timerObserver, this));
+    // thread.detach();
 }
 
 MysqlConnectPool::MysqlConnectPool (MysqlConnectPoolPrivate *d)
@@ -120,12 +122,19 @@ MysqlConnectPool::~MysqlConnectPool ()
     d->terminate.store(true, std::memory_order_relaxed);
     d->cond.notify_all();
     d->timerCond.notify_one();
-
-    for (auto p : d->freeList)
+    if (!d->usedList.empty())
     {
-        delete p->mysqlConnect;
+        PRINT_WARNING("mysql connect pool has used connect not been return");
+
+        // 强制回收
+        d->freeList.merge(d->usedList);
+        d->usedList.clear();
+    }
+    for (auto *p : d->freeList)
+    {
         delete p;
     }
+    d->freeList.clear();
 }
 MysqlConnect *MysqlConnectPool::getConnect (std::chrono::milliseconds time)
 {
@@ -151,7 +160,7 @@ MysqlConnect *MysqlConnectPool::getConnect (std::chrono::milliseconds time)
             else if (time.count() == 0)
             {
                 lock.unlock();
-                while (!d->freeList.empty() || d->terminate)
+                while (d->freeList.empty() && !d->terminate)
                     std::this_thread::sleep_for(std::chrono::milliseconds(4));
 
                 lock.lock();
@@ -253,7 +262,10 @@ void MysqlConnectPool::timerObserver ()
             );
 
             if (d->terminate)
+            {
+                d->timerCond.notify_one();
                 return;
+            }
         }
 
         // 如果有额外的空闲链接

@@ -35,7 +35,7 @@ inline auto GetPtrHelper (const T &d) -> decltype(d.operator->()) { return d.ope
 
 #define CLASS_IS_VALID(Class, exp) inline bool isValid () const noexcept override { \
                                     const D_PTR(Class);                        \
-                                    return ((typeid(*d) == typeid(Class##Private)) && exp);   \
+                                    return ((typeid(*d) == typeid(Class##Private)) && d->isValid && exp); \
                               }
 
 #define CLASS_DEFAULT_COPY_CONSTRUCTOR(Class, Parent) \
@@ -58,24 +58,28 @@ inline auto GetPtrHelper (const T &d) -> decltype(d.operator->()) { return d.ope
     Class(const Class &) = delete;             \
     Class &operator=(const Class &) = delete;
 
-
 class Base;
 class BasePrivate
 {
 public:
-    explicit BasePrivate (Base *parent)
-        : q_ptr(parent) {}
+    BasePrivate ()
+        : q_ptr(nullptr) {};
     virtual ~BasePrivate () noexcept = default;
 
 protected:
+    explicit BasePrivate (Base *parent)
+        : q_ptr(parent) {}
+
     DECLARE_PUBLIC_Q(Base);
     DECLARE_PTR_Q(Base);
+
+    bool isValid = true;
 };
 class Base
 {
 public:
     Base ()
-        : d_ptr(new BasePrivate(this)) {}
+        : d_ptr(nullptr) {};
 
     virtual ~Base () noexcept = default;
 

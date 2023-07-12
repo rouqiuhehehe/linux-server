@@ -11,7 +11,8 @@
 #define DBNAME "DB_Yoshiki"
 
 #define TABLE_NAME "test_table"
-#define QUERY_SQL "select * from " TABLE_NAME
+#define WHERE_QUERY " where sex = ? and id between ? and ?"
+#define QUERY_SQL "select * from " TABLE_NAME WHERE_QUERY
 
 int main ()
 {
@@ -21,13 +22,48 @@ int main ()
         PORT,
         USERNAME,
         PASSWORD,
-        DBNAME
+        DBNAME,
+        true
     );
 
     auto db = mysqlConnectPool.getConnect();
-    auto res = db->execQuery(QUERY_SQL);
+    // auto db1 = mysqlConnectPool.getConnect();
+    // auto db2 = mysqlConnectPool.getConnect();
+    // auto db3 = mysqlConnectPool.getConnect();
+    // auto db4 = mysqlConnectPool.getConnect();
+    // auto db5 = mysqlConnectPool.getConnect();
+    // auto db6 = mysqlConnectPool.getConnect();
+    // auto db7 = mysqlConnectPool.getConnect();
+    // auto db8 = mysqlConnectPool.getConnect();
+    // auto db9 = mysqlConnectPool.getConnect();
+    // MysqlConnect db(
+    //     HOST,
+    //     PORT,
+    //     USERNAME,
+    //     PASSWORD,
+    //     DBNAME
+    // );
 
-    std::cout << res.getResults().size() << std::endl;
+    // auto res = db->execQuery(QUERY_SQL);
 
+    // std::cout << *res << std::endl;
+    auto stmt = db->getStmt(QUERY_SQL);
+
+    int left = 1, right = 100;
+    if (stmt->isValid())
+    {
+        stmt->setParam(0, "man");
+        stmt->setParam(1, left);
+        stmt->setParam(2, right);
+
+        auto res = stmt->executeQuery();
+
+        if (res->isValid())
+        {
+            std::cout << *res << std::endl;
+        }
+    }
+
+    // mysqlConnectPool.retConnect(db3);
     return 0;
 }

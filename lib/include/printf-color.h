@@ -30,5 +30,18 @@
 #define CLEAR                "\e[2J"
 #define CLRLINE              "\r\e[K" //or "\e[1K\r"
 
-#define PRINT_ERROR(msg, ...) printf(RED"%s:%s::%u\t" msg, __FILE__, __FUNCTION__, __LINE__, ##__VA_ARGS__)
+#ifdef __cplusplus
+#define STD std::
+#else
+#define STD
+#endif
+
+#define PRINT_INFO(str, ...) STD printf(UNDERLINE "%s:%s:%d" NONE "\t" str "\n", \
+                                __FILE__, __FUNCTION__, __LINE__, ##__VA_ARGS__)
+
+#define PRINT_ERROR(str, ...) STD fprintf(stderr, UNDERLINE "%s:%s:%d" NONE "\t" str "\n", \
+                                __FILE__, __FUNCTION__, __LINE__, ##__VA_ARGS__)
+
+#define PRINT_WARNING(str, ...) STD printf(BROWN UNDERLINE"%s:%s:%d" NONE "\t" YELLOW str "\n" NONE, \
+                                    __FILE__, __FUNCTION__, __LINE__, ##__VA_ARGS__)
 #endif //LINUX_SERVER_LIB_INCLUDE_PRINTF_COLOR_H_

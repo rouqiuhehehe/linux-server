@@ -19,6 +19,11 @@ class MysqlConnectPoolPrivate : public BasePrivate
 
     struct MysqlConnectWithTime
     {
+        ~MysqlConnectWithTime () noexcept
+        {
+            delete mysqlConnect;
+            mysqlConnect = nullptr;
+        }
         MysqlConnect *mysqlConnect;
         std::chrono::milliseconds lendTime = getNow();
         std::chrono::milliseconds retTime = getNow();
@@ -31,9 +36,11 @@ class MysqlConnectPoolPrivate : public BasePrivate
         return std::chrono::duration_cast <std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch());
     }
+
+    ~MysqlConnectPoolPrivate () noexcept override = default;
 public:
     CLASS_COPY_CONSTRUCTOR_DISABLED(MysqlConnectPoolPrivate)
-
+protected:
     MysqlConnectPoolPrivate (
         std::string name,
         const char *host,
@@ -46,7 +53,7 @@ public:
         std::chrono::milliseconds expireTime,
         MysqlConnectPool *parent
     );
-protected:
+
     std::string name;
     ConnectList freeList;
     ConnectList usedList;
@@ -81,6 +88,7 @@ public:
         const char *username,
         const char *password,
         const char *dbname,
+        bool debug = false,
         size_t minConnectSize = MysqlConnectPoolPrivate::defaultMinConnectSize,
         size_t maxConnectSize = MysqlConnectPoolPrivate::defaultMinConnectSize * 2,
         std::chrono::milliseconds expireTime = MysqlConnectPoolPrivate::defaultExpireTime

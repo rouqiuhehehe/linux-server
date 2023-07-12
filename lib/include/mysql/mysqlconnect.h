@@ -6,6 +6,7 @@
 #define HELLO_WORLD_INCLUDE_MYSQLCONNECT_H_
 
 #include "mysqlresult.h"
+#include "mysqlstmt.h"
 
 class MysqlConnect;
 class MysqlConnectPrivate : public BasePrivate
@@ -14,19 +15,22 @@ class MysqlConnectPrivate : public BasePrivate
 public:
     CLASS_COPY_CONSTRUCTOR_DISABLED(MysqlConnectPrivate)
 
+    ~MysqlConnectPrivate () noexcept override;
+
+protected:
     MysqlConnectPrivate (
         const char *host,
         unsigned port,
         const char *username,
         const char *password,
         const char *dbname,
+        bool debug,
         MysqlConnect *parent
     );
-    ~MysqlConnectPrivate () noexcept override;
 
-protected:
     MYSQL *db;
-    bool hasError = false;
+    bool isValid = false;
+    bool debug;
 
 private:
     static std::string transactionSQL;
@@ -38,7 +42,7 @@ class MysqlConnect : public Base
 {
     DECLARE_PRIVATE_D(MysqlConnect);
 public:
-    CLASS_IS_VALID(MysqlConnect, !d->hasError)
+    CLASS_IS_VALID(MysqlConnect, d->isValid)
     CLASS_COPY_CONSTRUCTOR_DISABLED(MysqlConnect)
     CLASS_DEFAULT_MOVE_COPY_CONSTRUCTOR(MysqlConnect, Base)
 
@@ -47,12 +51,13 @@ public:
         unsigned port,
         const char *username,
         const char *password,
-        const char *dbname
+        const char *dbname,
+        bool debug = false
     );
     ~MysqlConnect () noexcept override = default;
 
     bool exec (const char *sql);
-    MysqlResSet execQuery (const char *sql);
+    MysqlResSetSharedPtr_t execQuery (const char *sql);
 
     bool transaction ();
     bool rollback ();
@@ -70,16 +75,22 @@ public:
         return d->db;
     }
 
+    inline uint64_t getInsertId ()
+    {
+        D_PTR(MysqlConnect);
+        return mysql_insert_id(d->db);
+    }
+
     inline uint64_t getAffectedRows () const noexcept
     {
         const D_PTR(MysqlConnect);
         return mysql_affected_rows(d->db);
     }
 
-    inline bool hasError () const noexcept
+    inline MysqlStmtSharedPtr_t getStmt (const std::string &str)
     {
-        const D_PTR(MysqlConnect);
-        return d->hasError;
+        D_PTR(MysqlConnect);
+        return std::make_shared <MysqlStmt>(d->db, str);
     }
 
 protected:
