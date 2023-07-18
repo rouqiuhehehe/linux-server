@@ -40,22 +40,20 @@ MysqlResSetPrivate::MysqlResSetPrivate (MYSQL_STMT *stmt, MysqlResSet *parent)
             fields.emplace_back(field[i].name);
             setResultBind(&bind[i], &field[i]);
         }
-
-        if (mysql_stmt_bind_result(stmt, bind))
-        {
-            PRINT_ERROR("mysql_stmt_bind_result error : %s", mysql_stmt_error(stmt));
-            goto error;
-        }
-        if (mysql_stmt_execute(stmt))
-        {
-            PRINT_MYSQL_STMT_ERROR(stmt, "mysql_stmt_execute fail");
-            goto error;
-        }
         // 缓存所有结果集，默认情况下，成功执行的准备语句的结果集不会在客户端缓冲，而是 mysql_stmt_fetch()从服务器一次获取一个
         // mysql_stmt_data_seek()、 mysql_stmt_row_seek()或 mysql_stmt_row_tell()。这些函数需要可查找的结果集
         // if (mysql_stmt_store_result(stmt))
         // {
         //     PRINT_MYSQL_STMT_ERROR(stmt, "mysql_stmt_store_result fail");
+        // }
+        if (mysql_stmt_bind_result(stmt, bind))
+        {
+            PRINT_ERROR("mysql_stmt_bind_result error : %s", mysql_stmt_error(stmt));
+            goto error;
+        }
+        // if (mysql_stmt_execute(stmt))
+        // {
+        //     PRINT_MYSQL_STMT_ERROR(stmt, "mysql_stmt_execute fail");
         //     goto error;
         // }
 
@@ -101,7 +99,11 @@ void MysqlResSetPrivate::insertResMap (MYSQL_ROW row)
 void MysqlResSetPrivate::setResultBind (MYSQL_BIND *bind, MYSQL_FIELD *field)
 {
     bind->buffer_type = field->type;
-    bind->buffer = ::operator new(field->length);
+    if (bind->buffer_type == MYSQL_TYPE_DATETIME || bind->buffer_type == MYSQL_TYPE_TIMESTAMP
+        || bind->buffer_type == MYSQL_TYPE_DATE || bind->buffer_type == MYSQL_TYPE_TIME)
+        bind->buffer = ::operator new(sizeof(MYSQL_TIME));
+    else
+        bind->buffer = ::operator new(field->length);
     // MYSQL_TYPE_VAR_STRING需要设置缓冲区大小
     if (field->type == MYSQL_TYPE_VAR_STRING)
         bind->buffer_length = field->length;

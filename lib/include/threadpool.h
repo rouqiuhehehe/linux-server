@@ -47,10 +47,10 @@ public:
     bool start ();
 
     template <class F, class ...Arg>
-    auto execf (uint64_t timeoutMs, F &&f, Arg &&... arg) -> std::future <decltype(f(arg...))>;
+    auto exec (uint64_t timeoutMs, F &&f, Arg &&... arg) -> std::future <decltype(f(arg...))>;
 
     template <class F, class ...Arg>
-    auto execf (F &&f, Arg &&... arg) -> std::future <decltype(f(arg...))>;
+    auto exec (F &&f, Arg &&... arg) -> std::future <decltype(f(arg...))>;
 
     /**
     * @brief 等待当前任务队列中, 所有工作全部结束(队列无任务).
@@ -107,12 +107,12 @@ bool ThreadPool::isTerminate () const
     return terminate_;
 }
 template <class F, class... Arg>
-auto ThreadPool::execf (F &&f, Arg &&... arg) -> std::future <decltype(f(arg...))>
+auto ThreadPool::exec (F &&f, Arg &&... arg) -> std::future <decltype(f(arg...))>
 {
     return execf(0, f, arg...);
 }
 template <class F, class... Arg>
-auto ThreadPool::execf (uint64_t timeoutMs, F &&f, Arg &&... arg) -> std::future <decltype(f(arg...))>
+auto ThreadPool::exec (uint64_t timeoutMs, F &&f, Arg &&... arg) -> std::future <decltype(f(arg...))>
 {
     uint64_t expireTime = timeoutMs == 0 ? 0 : (getNowMs() + timeoutMs);
 

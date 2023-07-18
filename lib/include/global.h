@@ -8,6 +8,19 @@
 #define LINUX_SERVER_LIB_INCLUDE_GLOBAL_H_
 
 #include "util.h"
+
+#include <errno.h>
+#define CHECK_RET(expr, fnName)                                                 \
+            if (expr)                                                           \
+            {                                                                   \
+                fprintf(stderr,"%s:%s:%d:  "#fnName" err %s\n",                 \
+                         __FILE__, __FUNCTION__, __LINE__, strerror(errno));    \
+                exit(EXIT_FAILURE);                                             \
+            }
+
+#define SET_FD_NONBLOCK(fd) fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
+#define SET_FD_BLOCK(fd) fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) & ~O_NONBLOCK)
+
 #ifdef __cplusplus
 
 #include <memory>

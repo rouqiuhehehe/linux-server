@@ -76,15 +76,14 @@ MysqlConnectPool::MysqlConnectPool (
     }
 
     if (d->freeList.size() != minConnectSize)
-    {
-        d->hasError = true;
         return;
-    }
 
     d->currConnectSize = d->freeList.size();
 
-    // auto thread = std::thread(std::bind(&MysqlConnectPool::timerObserver, this));
-    // thread.detach();
+    auto thread = std::thread(std::bind(&MysqlConnectPool::timerObserver, this));
+    thread.detach();
+
+    d->isValid = true;
 }
 
 MysqlConnectPool::MysqlConnectPool (MysqlConnectPoolPrivate *d)
@@ -106,15 +105,14 @@ MysqlConnectPool::MysqlConnectPool (MysqlConnectPoolPrivate *d)
     }
 
     if (d->freeList.size() != d->minConnectSize)
-    {
-        d->hasError = true;
         return;
-    }
 
     d->currConnectSize = d->freeList.size();
 
     auto thread = std::thread(std::bind(&MysqlConnectPool::timerObserver, this));
     thread.detach();
+
+    d->isValid = true;
 }
 MysqlConnectPool::~MysqlConnectPool ()
 {
@@ -122,6 +120,9 @@ MysqlConnectPool::~MysqlConnectPool ()
     d->terminate.store(true, std::memory_order_relaxed);
     d->cond.notify_all();
     d->timerCond.notify_one();
+
+    // 防止double free
+    std::unique_lock <std::mutex> lock(d->mutex);
     if (!d->usedList.empty())
     {
         PRINT_WARNING("mysql connect pool has used connect not been return");

@@ -8,16 +8,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 #message(${CMAKE_VERSION})
 add_definitions(-Wno-unknown-pragmas)
 
-function (executable)
-    file(GLOB SOURCE_SRC "*.c" "*.cpp")
-
-    foreach (FILE ${SOURCE_SRC})
-        string(REGEX REPLACE ".*/(.*)\\.(.*)" "\\1" TARGET_NAME ${FILE})
-        string(REGEX REPLACE ".*/(.*)" "\\1" FILE_NAME ${FILE})
-
-        add_executable(${TARGET_NAME} ${FILE_NAME})
-    endforeach ()
-endfunction ()
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/global.cmake)
 
 include_directories(lib/include)
 

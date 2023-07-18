@@ -65,7 +65,7 @@ protected:
     std::condition_variable cond;
     std::condition_variable timerCond;
     std::atomic <bool> terminate { false };
-    bool hasError = false;
+    bool isValid = false;
     const char *host;
     unsigned port;
     const char *username;
@@ -79,7 +79,7 @@ class MysqlConnectPool : public Base
 public:
     CLASS_DEFAULT_MOVE_COPY_CONSTRUCTOR(MysqlConnectPool, Base)
     CLASS_COPY_CONSTRUCTOR_DISABLED(MysqlConnectPool)
-    CLASS_IS_VALID(MysqlConnectPool, d->hasError)
+    CLASS_IS_VALID(MysqlConnectPool, true)
 
     MysqlConnectPool (
         const char *poolName,

@@ -79,7 +79,11 @@ bool MysqlStmt::execute ()
         PRINT_MYSQL_STMT_ERROR(d->stmt, "mysql_stmt_bind_param fail");
         return false;
     }
-
+    if (mysql_stmt_execute(d->stmt))
+    {
+        PRINT_MYSQL_STMT_ERROR(d->stmt, "mysql_stmt_execute fail");
+        return false;
+    }
     return true;
 }
 MysqlResSetSharedPtr_t MysqlStmt::executeQuery ()
