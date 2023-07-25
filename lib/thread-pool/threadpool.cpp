@@ -3,6 +3,7 @@
 //
 
 #include "threadpool.h"
+#include <thread>
 
 ThreadPool::ThreadPool (int num)
     : threadNum_(num) {}

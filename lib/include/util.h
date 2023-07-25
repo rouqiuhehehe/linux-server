@@ -5,14 +5,48 @@
 #ifndef LINUX_SERVER_LIB_INCLUDE_UTIL_H_
 #define LINUX_SERVER_LIB_INCLUDE_UTIL_H_
 
+#define UUID_FILE_PATH "/proc/sys/kernel/random/uuid"
+#define UUID_STR_LEN 37
+
 #ifdef __cplusplus
 #include <cstdint>
 
 #include <locale>
 #include <codecvt>
 #include <random>
+#include <fstream>
+#include <cstring>
+#include <iostream>
+
 namespace Utils
 {
+    inline std::string getUuid ()
+    {
+        std::ifstream ifStream(UUID_FILE_PATH);
+        if (ifStream.is_open())
+        {
+            char uuid[UUID_STR_LEN];
+            ifStream.get(uuid, UUID_STR_LEN);
+
+            if (ifStream.gcount() != UUID_STR_LEN - 1)
+            {
+                std::cerr << "create uuid length error, need 36, real " << ifStream.gcount()
+                          << std::endl;
+                ifStream.close();
+                return {};
+            }
+
+            ifStream.close();
+            return uuid;
+        }
+        else
+        {
+            std::cerr << "can't open the file " UUID_FILE_PATH ", error str : "
+                      << strerror(errno) << std::endl;
+            return {};
+        }
+    }
+
     template <class T>
     inline T *addressOf (const T &t)
     {
@@ -48,6 +82,8 @@ private:
     public:
         NonAbleMoveCopy () = default;
         virtual ~NonAbleMoveCopy () noexcept = default;
+        NonAbleMoveCopy (NonAbleMoveCopy &&) noexcept = delete;
+        NonAbleMoveCopy &operator= (NonAbleMoveCopy &&) noexcept = delete;
     };
 
     class NonAbleAllCopy : NonAbleMoveCopy, NonAbleCopy
@@ -79,6 +115,24 @@ private:
         return uft8Str;
     }
 #endif
+}
+
+#else
+#include <string.h>
+#include <stdio.h>
+#include <errno.h>
+
+inline static void getUuid (char *src)
+{
+    FILE *file = fopen(UUID_FILE_PATH, "r");
+    if (!file)
+    {
+        fprintf(stderr, "can't open the file " UUID_FILE_PATH " error str : %s\n", strerror(errno));
+        return;
+    }
+
+    fgets(src, UUID_STR_LEN, file);
+    fclose(file);
 }
 #endif
 

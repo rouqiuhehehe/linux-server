@@ -1,0 +1,1 @@
+auxLibrary(redisasync hiredis /usr/local/include)

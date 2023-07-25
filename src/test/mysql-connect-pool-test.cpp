@@ -3,19 +3,25 @@
 //
 
 #include "mysql/mysqlconnectpool.h"
+#include "threadpoolexecutor.h"
 
 #define HOST "127.0.0.1"
 #define PORT 3306
 #define USERNAME "root"
 #define PASSWORD "jianv4as"
-#define DBNAME "DB_Yoshiki"
+#define DBNAME "yoshiki_db"
 
-#define TABLE_NAME "test_table"
-#define WHERE_QUERY " where sex = ? and id between ? and ?"
+#define TABLE_NAME "u_test"
+#define WHERE_QUERY " where u_sex = ? and u_id between ? and ?"
 #define QUERY_SQL "select * from " TABLE_NAME WHERE_QUERY
+
+#define CHECK_IS_VALID(d) if (!d->isValid()) exit(EXIT_FAILURE)
 
 int main ()
 {
+    ThreadPoolExecutor *threadPool = ThreadPoolExecutor::getInstance();
+    CHECK_IS_VALID(threadPool);
+
     MysqlConnectPool mysqlConnectPool(
         "ddsa",
         HOST,
@@ -25,45 +31,32 @@ int main ()
         DBNAME,
         true
     );
+    CHECK_IS_VALID((&mysqlConnectPool));
 
-    auto db = mysqlConnectPool.getConnect();
-    // auto db1 = mysqlConnectPool.getConnect();
-    // auto db2 = mysqlConnectPool.getConnect();
-    // auto db3 = mysqlConnectPool.getConnect();
-    // auto db4 = mysqlConnectPool.getConnect();
-    // auto db5 = mysqlConnectPool.getConnect();
-    // auto db6 = mysqlConnectPool.getConnect();
-    // auto db7 = mysqlConnectPool.getConnect();
-    // auto db8 = mysqlConnectPool.getConnect();
-    // auto db9 = mysqlConnectPool.getConnect();
-    // MysqlConnect db(
-    //     HOST,
-    //     PORT,
-    //     USERNAME,
-    //     PASSWORD,
-    //     DBNAME
-    // );
+    auto fun = [&mysqlConnectPool] (const std::string &sex, int left, int right) {
+        auto db = mysqlConnectPool.getConnect();
+        auto stmt = db->getStmt(QUERY_SQL);
 
-    // auto res = db->execQuery(QUERY_SQL);
-
-    // std::cout << *res << std::endl;
-    auto stmt = db->getStmt(QUERY_SQL);
-
-    int left = 1, right = 100;
-    if (stmt->isValid())
-    {
-        stmt->setParam(0, "man");
-        stmt->setParam(1, left);
-        stmt->setParam(2, right);
-
-        auto res = stmt->executeQuery();
-
-        if (res->isValid())
+        if (stmt->isValid())
         {
-            std::cout << *res << std::endl;
-        }
-    }
+            stmt->setParam(0, sex);
+            stmt->setParam(1, left);
+            stmt->setParam(2, right);
 
-    // mysqlConnectPool.retConnect(db3);
+            auto res = stmt->executeQuery();
+
+            if (res->isValid())
+            {
+                std::cout << *res << std::endl;
+            }
+        }
+
+        mysqlConnectPool.retConnect(db);
+    };
+
+    threadPool->exec(fun, "man", 5000, 5100);
+    threadPool->exec(fun, "woman", 6000, 6100);
+
+    std::this_thread::sleep_for(std::chrono::seconds(2));
     return 0;
 }

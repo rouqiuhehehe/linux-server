@@ -7,7 +7,19 @@
 #ifndef LINUX_SERVER_LIB_INCLUDE_GLOBAL_H_
 #define LINUX_SERVER_LIB_INCLUDE_GLOBAL_H_
 
-#include "util.h"
+#ifdef __cplusplus
+#include <cerrno>
+#else
+#include <errno.h>
+#endif
+#define CHECK_RET(expr, fnName)                                                 \
+            if (expr)                                                           \
+            {                                                                   \
+                fprintf(stderr,"%s:%s:%d:  "#fnName" err %s\n",                 \
+                         __FILE__, __FUNCTION__, __LINE__, strerror(errno));    \
+                exit(EXIT_FAILURE);                                             \
+            }
+
 #ifdef __cplusplus
 
 #include <memory>

@@ -3,8 +3,8 @@
 //
 
 #include "global.h"
+#include "util.h"
 #include <iostream>
-#include <utility>
 
 class Widget;
 class WidgetPrivate : public BasePrivate
@@ -24,6 +24,8 @@ public:
     explicit Widget (int w)
         : Base(new WidgetPrivate(w, this)) {};
     ~Widget () noexcept override = default;
+
+    CLASS_IS_VALID(Widget, true)
 
     int width () const
     {
@@ -57,6 +59,8 @@ public:
     Label (const std::string &title, int w)
         : Widget(new LabelPrivate(title, w, this)) {}
     ~Label () noexcept final = default;
+
+    CLASS_IS_VALID(Label, true)
 
     const std::string &title () const
     {
