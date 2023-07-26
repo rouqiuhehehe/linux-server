@@ -14,3 +14,5 @@ target_link_libraries(redis-test hiredis event)
 target_include_directories(redis-test PUBLIC /usr/local/include)
 
 add_subdirectory(dpdk-test)
+
+target_link_libraries(test-timer PRIVATE pthread)
