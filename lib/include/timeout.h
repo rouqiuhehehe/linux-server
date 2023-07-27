@@ -13,11 +13,14 @@
 #include <thread>
 #include <algorithm>
 #include <condition_variable>
+#include <mutex>
 
 template <class T>
 class Timeout;
 template <class T>
 class TimerNode;
+template <class T>
+class TimeoutPrivate;
 template <class T>
 class TimerNodePrivate : BaseTemplatePrivate <T>
 {
@@ -25,6 +28,9 @@ class TimerNodePrivate : BaseTemplatePrivate <T>
     friend Timeout <T>;
     using Callback = std::function <void ()>;
     using TimerId = uint32_t;
+
+public:
+    ~TimerNodePrivate () noexcept override = default;
 
 protected:
     TimerNodePrivate (
@@ -34,22 +40,28 @@ protected:
         bool keepAlive,
         TimerNode <T> *parent
     );
-    ~TimerNodePrivate () noexcept override = default;
+
+    inline T getExpireTime () const noexcept
+    {
+        return expire + beginTime;
+    }
 
     bool operator< (const TimerNodePrivate &other) const noexcept
     {
-        if (expire < other.expire)
+        if (getExpireTime() < other.getExpireTime())
             return true;
-        else if (expire > other.expire)
+        else if (getExpireTime() > other.getExpireTime())
             return false;
         else
             return id < other.id;
+
     }
 
 private:
     TimerId id;
     Callback callback;
     T expire;
+    T beginTime;
     bool keepAlive;
 };
 
@@ -58,14 +70,25 @@ class TimerNode : BaseTemplate <T>, Utils::NonAbleCopy
 {
     DECLARE_TEMPLATE_PRIVATE_D(TimerNode, T);
     friend Timeout <T>;
+    friend std::set <TimerNode <T>>;
+    friend TimeoutPrivate <T>;
+
+public:
+    ~TimerNode () noexcept override = default;
 
 protected:
-    TimerNode (typename TimerNodePrivate <T>::Callback &&callback, T expire)
-        : BaseTemplate <T>(new TimerNodePrivate <T>(std::move(callback), expire, id++, this)) {}
+    TimerNode (typename TimerNodePrivate <T>::Callback &&callback, T expire, bool keepAlive)
+        : BaseTemplate <T>(
+        new TimerNodePrivate <T>(
+            std::move(callback),
+            expire,
+            id++,
+            keepAlive,
+            this
+        )) {}
 
     explicit TimerNode (TimerNodePrivate <T> *d)
         : BaseTemplate <T>(d) {}
-    ~TimerNode () noexcept override = default;
 
     CLASS_DEFAULT_MOVE_COPY_CONSTRUCTOR(TimerNode, Base)
     CLASS_TEMPLATE_IS_VALID(TimerNode, true, T)
@@ -75,6 +98,35 @@ protected:
         const D_TEMPLATE_PTR(TimerNode, T);
 
         return *d < *other.d_fun();
+    }
+
+    inline typename TimerNodePrivate <T>::TimerId getId () const noexcept
+    {
+        const D_TEMPLATE_PTR(TimerNode, T);
+        return d->id;
+    }
+
+    inline T getExpireTime () const noexcept
+    {
+        const D_TEMPLATE_PTR(TimerNode, T);
+        return d->getExpireTime();
+    }
+
+    inline void setBeginTime (T begin)
+    {
+        D_TEMPLATE_PTR(TimerNode, T);
+        d->beginTime = begin;
+    }
+    inline typename TimerNodePrivate <T>::Callback getFun () const noexcept
+    {
+        const D_TEMPLATE_PTR(TimerNode, T);
+        return d->callback;
+    }
+
+    inline bool isKeepAlive () const noexcept
+    {
+        const D_TEMPLATE_PTR(TimerNode, T);
+        return d->keepAlive;
     }
 
 protected:
@@ -88,17 +140,34 @@ class TimeoutPrivate : BaseTemplatePrivate <T>
 
 protected:
     explicit TimeoutPrivate (Timeout <T> *parent);
-    ~TimeoutPrivate () noexcept override = default;
+    ~TimeoutPrivate () noexcept override
+    {
+        terminate = true;
+        cond.notify_one();
+        for (auto v : timeSet)
+            delete v;
+        timeSet.clear();
+    };
 
 private:
-    std::set <TimerNode <T> *> timeSet;
+    class TimerNodeLess
+    {
+    public:
+        bool operator() (TimerNode <T> *a, TimerNode <T> *b) const noexcept
+        {
+            return *a < *b;
+        }
+    };
+    std::set <TimerNode <T> *, TimerNodeLess> timeSet;
     std::condition_variable cond;
+    bool terminate = false;
 };
 
 template <class T = std::chrono::milliseconds>
 class Timeout : BaseTemplate <T>, Utils::NonAbleCopy
 {
     DECLARE_TEMPLATE_PRIVATE_D(Timeout, T);
+    friend TimerNodePrivate <T>;
 
 public:
     using TimerId = typename TimerNodePrivate <T>::TimerId;
@@ -116,12 +185,12 @@ public:
 
     inline TimerId setTimeout (typename TimerNodePrivate <T>::Callback &&fun, T expire)
     {
-        setTimer(std::forward <typename TimerNodePrivate <T>::Callback>(fun), expire, false);
+        return setTimer(std::forward <typename TimerNodePrivate <T>::Callback>(fun), expire, false);
     }
 
     inline TimerId setInterval (typename TimerNodePrivate <T>::Callback &&fun, T expire)
     {
-        setTimer(std::forward <typename TimerNodePrivate <T>::Callback>(fun), expire, true);
+        return setTimer(std::forward <typename TimerNodePrivate <T>::Callback>(fun), expire, true);
     }
 
     inline bool clearTimer (TimerId id)
@@ -129,21 +198,23 @@ public:
         D_TEMPLATE_PTR(Timeout, T);
 
         auto it = std::find_if(
-            d->timeSet.begin(), d->timeSet.end(), [&id] (const TimerNode <T> &node) {
-                return node.d_fun()->id == id;
+            d->timeSet.begin(), d->timeSet.end(), [&id] (TimerNode <T> *node) {
+                return node->getId() == id;
             }
         );
         if (it == d->timeSet.end())
             return false;
 
+        TimerNode <T> *node = *it;
         d->timeSet.erase(it);
+        delete node;
         return true;
     }
 
 protected:
-    inline int64_t getCurrentTime () const noexcept
+    static inline T getCurrentTime () noexcept
     {
-        return std::chrono::duration_cast <T>(std::chrono::steady_clock::now().time_since_epoch()).count();
+        return std::chrono::duration_cast <T>(std::chrono::steady_clock::now().time_since_epoch());
     }
     inline TimerId setTimer (
         typename TimerNodePrivate <T>::Callback &&fun,
@@ -153,8 +224,11 @@ protected:
     {
         D_TEMPLATE_PTR(Timeout, T);
 
-        auto *timeNode = new TimerNode <T>(std::move(fun), expire + getCurrentTime(), keepAlive);
+        auto *timeNode = new TimerNode <T>(std::move(fun), expire, keepAlive);
         d->timeSet.emplace(timeNode);
+        d->cond.notify_one();
+
+        return timeNode->getId();
     }
 
     inline void setTimeObserver ()
@@ -174,10 +248,58 @@ protected:
     inline void timeObserver ()
     {
         D_TEMPLATE_PTR(Timeout, T);
+        std::mutex mutex;
+        std::unique_lock <std::mutex> lock(mutex);
+        T currentTime;
 
-        if (d->timeSet.empty())
+        for (;;)
         {
+            if (d->terminate) return;
+            if (d->timeSet.empty())
+            {
+                d->cond.wait(
+                    lock, [&d] {
+                        return !d->timeSet.empty() || d->terminate;
+                    }
+                );
 
+                if (d->terminate)
+                    return;
+            }
+
+            auto minIt = d->timeSet.begin();
+            TimerNode <T> *node = *minIt;
+            currentTime = getCurrentTime();
+
+            if (node->getExpireTime() <= currentTime)
+            {
+                node->getFun()();
+
+                // terminate 退出
+                if (d->terminate)
+                    return;
+
+                d->timeSet.erase(minIt);
+                // setInterval
+                if (node->isKeepAlive())
+                {
+                    node->setBeginTime(getCurrentTime());
+                    d->timeSet.emplace(node);
+                }
+            }
+            else
+            {
+                T diff = node->getExpireTime() - currentTime;
+
+                bool res = d->cond.wait_for(
+                    lock, diff, [&d] {
+                        return d->terminate;
+                    }
+                );
+                // terminate 退出
+                if (res)
+                    return;
+            }
         }
     }
 };
@@ -196,8 +318,10 @@ TimerNodePrivate <T>::TimerNodePrivate (
       expire(expire),
       id(id),
       keepAlive(keepAlive),
+      beginTime(Timeout <T>::getCurrentTime()),
       BaseTemplatePrivate <T>(parent) {}
 template <class T>
 TimeoutPrivate <T>::TimeoutPrivate (Timeout <T> *parent)
     : BaseTemplatePrivate <T>(parent) {};
+
 #endif //LINUX_SERVER_LIB_INCLUDE_TIMEOUT_H_
