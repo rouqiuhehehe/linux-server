@@ -7,14 +7,6 @@
 #ifndef LINUX_SERVER_LIB_INCLUDE_GLOBAL_H_
 #define LINUX_SERVER_LIB_INCLUDE_GLOBAL_H_
 
-#if defined __GNUC__
-#define likely(x) __builtin_expect ((x), 1)
-#define unlikely(x) __builtin_expect ((x), 0)
-#else
-#define likely(x) (x)
-#define unlikely(x) (x)
-#endif
-
 #ifdef __cplusplus
 #include <cerrno>
 #else
