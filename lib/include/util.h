@@ -93,8 +93,6 @@ private:
         ~NonAbleAllCopy () noexcept override = default;
     };
 
-    static std::wstring_convert <std::codecvt_utf8 <wchar_t>, wchar_t> utf8_converter;
-
     inline int getRandomNum (int a, int b)
     {
         std::random_device device;
@@ -105,12 +103,12 @@ private:
 
     inline std::string getRandomChinese ()
     {
-        int seek = getRandomNum(1 << 13, 1 << 15);
+        int seek = getRandomNum(0, 0x9fa5 - 0x4e00 + 1);
         // 随机生成一个中文字符的 Unicode 值
         int unicode = 0x4e00 + seek % (0x9fa5 - 0x4e00 + 1);
 
-        wchar_t ch = unicode;
-        std::string uft8Str = utf8_converter.to_bytes(ch);
+        std::wstring_convert <std::codecvt_utf8 <wchar_t>, wchar_t> utf8_converter;
+        std::string uft8Str = utf8_converter.to_bytes(unicode);
 
         return uft8Str;
     }

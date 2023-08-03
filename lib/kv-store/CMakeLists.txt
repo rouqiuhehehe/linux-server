@@ -1,0 +1,3 @@
+project(kv-store)
+
+executable()

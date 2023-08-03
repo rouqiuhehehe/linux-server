@@ -1,11 +1,15 @@
+# 如有需要自定义编译的文件，可以使用executable(aaa, bbb) 排除编译
 function (executable)
+    #    message("xxxxx ${ARGV} ${ARGC} ------")
     file(GLOB SOURCE_SRC "*.c" "*.cpp")
 
     foreach (FILE ${SOURCE_SRC})
         string(REGEX REPLACE ".*/(.*)\\.(.*)" "\\1" TARGET_NAME ${FILE})
         string(REGEX REPLACE ".*/(.*)" "\\1" FILE_NAME ${FILE})
 
-        add_executable(${TARGET_NAME} ${FILE_NAME})
+        if (NOT (ARGC AND TARGET_NAME IN_LIST ARGV))
+            add_executable(${TARGET_NAME} ${FILE_NAME})
+        endif ()
     endforeach ()
 endfunction ()
 

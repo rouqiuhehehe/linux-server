@@ -68,8 +68,79 @@ public:
 
         return enqueue(std::forward <Arg>(item)...);
     }
-    // bool dequeue ();
-    // bool tryDequeue ();
+    T &dequeue ()
+    {
+        D_TEMPLATE_2_PTR(AtomicQueueStruct, T, N);
+        size_t currentReadIndex;
+        size_t currentMaxReadIndex;
+
+        for (;;)
+        {
+            do
+            {
+                currentReadIndex = atomicLoadRelaxed(d->readIndex);
+                currentMaxReadIndex = atomicLoadRelaxed(d->maxReadIndex);
+            } while (currentReadIndex == currentMaxReadIndex);
+
+            if (currentReadIndex == N - 1)
+            {
+                if (!d->readIndex
+                      .compare_exchange_strong(
+                          currentReadIndex,
+                          0,
+                          std::memory_order_acq_rel,
+                          std::memory_order_relaxed
+                      ))
+                    continue;
+            }
+            else if (!d->readIndex
+                       .compare_exchange_strong(
+                           currentReadIndex,
+                           currentReadIndex + 1,
+                           std::memory_order_acq_rel,
+                           std::memory_order_relaxed
+                       ))
+                continue;
+
+            return d->dataRing[currentReadIndex];
+        }
+    }
+    bool tryDequeue (T &item)
+    {
+        D_TEMPLATE_2_PTR(AtomicQueueStruct, T, N);
+        size_t currentReadIndex;
+        size_t currentMaxReadIndex;
+
+        currentReadIndex = atomicLoadRelaxed(d->readIndex);
+        currentMaxReadIndex = atomicLoadRelaxed(d->maxReadIndex);
+
+        // 没有东西可读
+        if (currentReadIndex == currentMaxReadIndex)
+            return false;
+
+        if (currentReadIndex == N - 1)
+        {
+            if (!d->readIndex
+                  .compare_exchange_strong(
+                      currentReadIndex,
+                      0,
+                      std::memory_order_acq_rel,
+                      std::memory_order_relaxed
+                  ))
+                return false;
+        }
+        else if (!d->readIndex
+                   .compare_exchange_strong(
+                       currentReadIndex,
+                       currentReadIndex + 1,
+                       std::memory_order_acq_rel,
+                       std::memory_order_relaxed
+                   ))
+            return false;
+
+        item = std::move(d->dataRing[currentReadIndex]);
+        return true;
+    }
 protected:
     DECLARE_TEMPLATE_2_PTR_D(AtomicQueueStruct, T, N);
     explicit AtomicQueueStruct (AtomicQueueStructPrivate <T, N> *d)
@@ -96,7 +167,17 @@ protected:
                 return false;
 
             if (unlikely(currentWriteIndex == N - 1))
-                currentWriteIndex = 0;
+            {
+                if (!d->writeIndex.compare_exchange_strong(
+                    currentWriteIndex,
+                    0,
+                    std::memory_order_acq_rel,
+                    std::memory_order_relaxed
+                ))
+                    continue;
+                else
+                    break;
+            }
         } while (
             !d->writeIndex.compare_exchange_weak(
                 currentWriteIndex,
@@ -113,7 +194,7 @@ protected:
         while (!d->maxReadIndex
                  .compare_exchange_weak(
                      compareWriteIndex,
-                     currentWriteIndex + 1,
+                     currentWriteIndex == N - 1 ? 0 : currentWriteIndex + 1,
                      std::memory_order_acq_rel,
                      std::memory_order_relaxed
                  ))
