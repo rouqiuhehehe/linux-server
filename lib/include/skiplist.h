@@ -189,6 +189,41 @@ public:
         size_++;
     }
 
+    bool erase (const T &value)
+    {
+        int i = MaxLevel - 1;
+        SkipListNodePtr *it = &list[i];
+        SkipListNodePtr old;
+
+        for (; i >= 0; --i)
+        {
+            if (*it)
+            {
+                while ((*it)->nextArr[i] && *(*it)->nextArr[i] < value)
+                    it = &(*it)->nextArr[i];
+
+                if ((*it)->nextArr[i] && *(*it)->nextArr[i] == value)
+                {
+                    if (i != 0)
+                        (*it)->nextArr[i] = (*it)->nextArr[i]->nextArr[i];
+                    else
+                    {
+                        if (tail == &(*it)->nextArr[i])
+                            tail = it;
+                        old = (*it)->nextArr[i];
+                        (*it)->nextArr[i] = (*it)->nextArr[i]->nextArr[i];
+                        delete old;
+                        size_--;
+                        return true;
+                    }
+                }
+            }
+            it--;
+        }
+
+        return false;
+    }
+
     Iterator find (const T &value) const noexcept
     {
         int i = MaxLevel - 1;

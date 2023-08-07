@@ -5,6 +5,7 @@
 #include <list>
 #include <set>
 #include <chrono>
+#include "tcp.h"
 
 int main ()
 {
@@ -15,9 +16,9 @@ int main ()
     std::set <int> ff;
 
     auto begin = std::chrono::system_clock::now();
-    for (int i = 0; i < 100000; ++i)
+    for (int i = 0; i < 100; ++i)
     {
-        c.insert(Utils::getRandomNum(1, 100000));
+        c.insert(i);
         // c.insert(i);
         // std::cout << i << std::endl;
     }
@@ -26,7 +27,8 @@ int main ()
     std::cout << std::chrono::duration_cast <std::chrono::milliseconds>(end - begin).count()
               << std::endl;
 
-    auto it = c.find(100000);
+    std::cout << c.erase(99);
+    auto it = c.find(66);
     if (it)
         std::cout << *it << std::endl;
     else
