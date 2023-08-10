@@ -36,6 +36,12 @@
 #define STD
 #endif
 
+#ifdef NDEBUG
+#define PRINT_INFO(str, ...)
+#define PRINT_ERROR(str, ...)
+#define PRINT_WARNING(str, ...)
+#else
+
 #define PRINT_INFO(str, ...) STD printf(UNDERLINE "%s:%s:%d" NONE "\t" str "\n", \
                                 __FILE__, __FUNCTION__, __LINE__, ##__VA_ARGS__)
 
@@ -44,4 +50,6 @@
 
 #define PRINT_WARNING(str, ...) STD printf(BROWN UNDERLINE"%s:%s:%d" NONE "\t" YELLOW str "\n" NONE, \
                                     __FILE__, __FUNCTION__, __LINE__, ##__VA_ARGS__)
+
+#endif
 #endif //LINUX_SERVER_LIB_INCLUDE_PRINTF_COLOR_H_

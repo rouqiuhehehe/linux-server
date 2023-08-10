@@ -8,11 +8,11 @@
 #include <functional>
 #include <memory>
 #include "util.h"
+#include <chrono>
 template <class T, int MaxLevel = 32, class Compare = std::less <T>>
 class SkipList
 {
-    // static_assert(MaxLevel <= 4 && MaxLevel > 1, "MaxLevel must between 2~4");
-
+    static_assert(MaxLevel <= 32 && MaxLevel > 1, "MaxLevel must between 2~32");
     class SkipListNode;
     typedef SkipListNode *SkipListNodePtr;
     typedef SkipList <T, MaxLevel, Compare> ClassType;
@@ -24,34 +24,35 @@ class SkipList
         SkipListNode (int level, R &&value)
             : value(std::forward <R>(value))
         {
-            memset(nextArr, 0, level * sizeof(SkipListNodePtr));
+            for (int i = 0; i < level; ++i)
+                nextArr[i] = nullptr;
         }
         ~SkipListNode () noexcept = default;
-        bool operator== (const T &r) const noexcept
+        inline bool operator== (const T &r) const noexcept
         {
             return value == r;
         }
-        bool operator!= (const T &r) const noexcept
+        inline bool operator!= (const T &r) const noexcept
         {
             return !operator==(r);
         }
-        bool operator== (const SkipListNode &r) const noexcept
+        inline bool operator== (const SkipListNode &r) const noexcept
         {
             return value == r.value;
         }
-        bool operator!= (const SkipListNode &r) const noexcept
+        inline bool operator!= (const SkipListNode &r) const noexcept
         {
             return operator==(r);
         }
-        bool operator< (const SkipListNode &r) const noexcept
+        inline bool operator< (const SkipListNode &r) const noexcept
         {
             return Compare()(value, r.value);
         }
-        bool operator< (const T &r) const noexcept
+        inline bool operator< (const T &r) const noexcept
         {
             return Compare()(value, r);
         }
-        bool operator> (const SkipListNode &r) const noexcept
+        inline bool operator> (const SkipListNode &r) const noexcept
         {
             return !operator<(r);
         }
@@ -61,7 +62,7 @@ class SkipList
         }
         void *operator new (size_t size, int level)
         {
-            return ::operator new(size + level * sizeof(SkipListNodePtr));
+            return ::operator new(size + level * sizeof(SkipListNodePtr)); // NOLINT
         }
 
         T value;
@@ -87,21 +88,21 @@ class SkipList
         {
             return Utils::addressOf(node->value);
         }
-        bool operator== (const SkipListIterator &r)
+        bool operator== (const SkipListIterator &r) const noexcept
         {
             return node == r.node;
         }
-        bool operator!= (const SkipListIterator &r)
+        bool operator!= (const SkipListIterator &r) const noexcept
         {
             return !operator==(r);
         }
-        SkipListIterator &operator++ ()
+        SkipListIterator &operator++ () noexcept
         {
             // 取最低层级的next
             node = node->nextArr[0];
             return *this;
         }
-        SkipListIterator operator++ (int)  // NOLINT(cert-dcl21-cpp)
+        SkipListIterator operator++ (int) noexcept  // NOLINT(cert-dcl21-cpp)
         {
             auto old = *this;
             ++*this;
@@ -117,7 +118,7 @@ public:
     SkipList () = default;
     ~SkipList () noexcept
     {
-        for (SkipListNodePtr i = list[0], old = list[0]; i != nullptr; old = i)
+        for (SkipListNodePtr i = nil->nextArr[0], old = nil->nextArr[0]; i != nullptr; old = i)
         {
             i = old->nextArr[0];
             delete old;
@@ -126,7 +127,7 @@ public:
 
     Iterator begin () const
     {
-        return Iterator(list[0]);
+        return Iterator(nil->nextArr[0]);
     }
 
     Iterator end () const noexcept
@@ -143,43 +144,22 @@ public:
     void insert (R &&value)
     {
         int level = getRandomLevel();
-
+        if (level > maxLevel_)
+            maxLevel_ = level;
         auto *node = new(level) SkipListNode(level, std::forward <R>(value));
 
-        int i = MaxLevel - 1;
-        SkipListNodePtr *it = &list[i];
+        int i = maxLevel_ - 1;
+        SkipListNodePtr it = nil;
 
         for (; i >= 0; --i)
         {
-            if (*it)
-            {
-                if (**it > *node)
-                {
-                    if (i < level)
-                    {
-                        node->nextArr[i] = *it;
-                        *it = node;
-                    }
-                    it--;
-                    continue;
-                }
+            while (it->nextArr[i] && *(it->nextArr[i]) < *node)
+                it = it->nextArr[i];
 
-                while ((*it)->nextArr[i] && *((*it)->nextArr[i]) < *node)
-                    it = &(*it)->nextArr[i];
-                if (i < level)
-                {
-                    // 如果是**it < *node 退出循环
-                    node->nextArr[i] = (*it)->nextArr[i];
-                    (*it)->nextArr[i] = node;
-                }
-                // 将it降层级，it是nextArr[i]，it-- == nextArr[i-1]
-                it--;
-            }
-            else
+            if (i < level)
             {
-                if (i < level)
-                    *it = node;
-                it--;
+                node->nextArr[i] = it->nextArr[i];
+                it->nextArr[i] = node;
             }
         }
 
@@ -191,34 +171,29 @@ public:
 
     bool erase (const T &value)
     {
-        int i = MaxLevel - 1;
-        SkipListNodePtr *it = &list[i];
+        int i = maxLevel_ - 1;
+        SkipListNodePtr *it = &nil;
         SkipListNodePtr old;
 
         for (; i >= 0; --i)
         {
-            if (*it)
-            {
-                while ((*it)->nextArr[i] && *(*it)->nextArr[i] < value)
-                    it = &(*it)->nextArr[i];
+            while ((*it)->nextArr[i] && *((*it)->nextArr[i]) < value)
+                it = &(*it)->nextArr[i];
 
-                if ((*it)->nextArr[i] && *(*it)->nextArr[i] == value)
+            if ((*it)->nextArr[i] && *((*it)->nextArr[i]) == value)
+            {
+                if (i == 0)
                 {
-                    if (i != 0)
-                        (*it)->nextArr[i] = (*it)->nextArr[i]->nextArr[i];
-                    else
-                    {
-                        if (tail == &(*it)->nextArr[i])
-                            tail = it;
-                        old = (*it)->nextArr[i];
-                        (*it)->nextArr[i] = (*it)->nextArr[i]->nextArr[i];
-                        delete old;
-                        size_--;
-                        return true;
-                    }
+                    if (tail == &(*it)->nextArr[i])
+                        tail = it;
+                    old = (*it)->nextArr[i];
+                    (*it)->nextArr[i] = (*it)->nextArr[i]->nextArr[i];
+                    delete old;
+                    size_--;
+                    return true;
                 }
+                (*it)->nextArr[i] = (*it)->nextArr[i]->nextArr[i];
             }
-            it--;
         }
 
         return false;
@@ -226,39 +201,25 @@ public:
 
     Iterator find (const T &value) const noexcept
     {
-        int i = MaxLevel - 1;
-        const SkipListNodePtr *ptr = &list[i];
+        int i = maxLevel_ - 1;
+        SkipListNodePtr ptr = nil;
         for (; i >= 0; --i)
         {
-            if (*ptr)
-            {
-                while ((*ptr)->nextArr[i] && **ptr < value)
-                    ptr = &(*ptr)->nextArr[i];
-                if (**ptr == value)
-                    return Iterator(*ptr);
-            }
+            while (ptr->nextArr[i] && *(ptr->nextArr[i]) < value)
+                ptr = ptr->nextArr[i];
 
-            ptr--;
+            if (*(ptr->nextArr[i]) == value)
+                return Iterator(ptr->nextArr[i]);
         }
 
         return end();
     }
 
-    // void sss () const
-    // {
-    //     int c = 0;
-    //     for (SkipListNodePtr i = list[3]; i != nullptr; i = i->nextArr[3])
-    //     {
-    //         c++;
-    //         std::cout << "level : " << i->level << " value : " << i->value << std::endl;
-    //     }
-    //     std::cout << c << std::endl;
-    // }
-
 private:
     static inline int getRandomLevel () noexcept
     {
         int level = 1;
+        int time;
         while (level <= MaxLevel)
         {
             if (Utils::getRandomNum(0, 3) == 0)
@@ -266,12 +227,14 @@ private:
             else
                 return level;
         }
+        return level;
     }
 
     // 1 2 3 4
-    SkipListNodePtr list[MaxLevel] = { nullptr };
+    SkipListNodePtr nil = new(MaxLevel) SkipListNode(MaxLevel, T {});
     // 尾部不做层级
-    SkipListNodePtr *tail = &list[0];
+    SkipListNodePtr *tail = &nil->nextArr[0];
     size_t size_ = 0;
+    int maxLevel_ = 1;
 };
 #endif //LINUX_SERVER_LIB_INCLUDE_SKIPLIST_H_

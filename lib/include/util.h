@@ -17,9 +17,17 @@
 #include <fstream>
 #include <cstring>
 #include <iostream>
+#include <arpa/inet.h>
 
 namespace Utils
 {
+    inline std::string getIpAndHost (const struct sockaddr_in &sockaddrIn)
+    {
+        char *ip = inet_ntoa(sockaddrIn.sin_addr);
+        uint16_t port = ntohs(sockaddrIn.sin_port);
+
+        return std::string(ip) + std::to_string(port);
+    }
     inline std::string getUuid ()
     {
         std::ifstream ifStream(UUID_FILE_PATH);
@@ -95,8 +103,8 @@ private:
 
     inline int getRandomNum (int a, int b)
     {
-        std::random_device device;
-        std::default_random_engine engine(device());
+        static std::random_device device;
+        static std::default_random_engine engine(device());
 
         return std::uniform_int_distribution <int>(a, b)(engine);
     }
@@ -107,7 +115,7 @@ private:
         // 随机生成一个中文字符的 Unicode 值
         int unicode = 0x4e00 + seek % (0x9fa5 - 0x4e00 + 1);
 
-        std::wstring_convert <std::codecvt_utf8 <wchar_t>, wchar_t> utf8_converter;
+        static std::wstring_convert <std::codecvt_utf8 <wchar_t>, wchar_t> utf8_converter;
         std::string uft8Str = utf8_converter.to_bytes(unicode);
 
         return uft8Str;
