@@ -10,18 +10,37 @@
 #include "printf-color.h"
 #include <thread>
 #include <fcntl.h>
-#include <queue>
+#include <list>
 #include <algorithm>
 #include <mutex>
+#include <atomic>
+#include "kv-command.h"
 
 #define MAX_EPOLL_ONCE_NUM 1024
 #define MESSAGE_SIZE_MAX 65535
+
+template <int>
+class Tcp;
 struct SockEpollPtr
 {
+    enum QUEUE_STATUS
+    {
+        STATUE_SLEEP,
+        STATUS_RECV,
+        STATUS_RECV_DOWN,
+        STATUS_RECV_BAD,
+        STATUS_SEND,
+        STATUS_SEND_DOWN
+    };
     explicit SockEpollPtr (int fd)
-        : fd(fd) {}
+        : fd(fd), sockaddr(sockaddr_in()) {}
+    SockEpollPtr (int fd, sockaddr_in &sockaddrIn)
+        : fd(fd), sockaddr(sockaddrIn) {}
     int fd;
-    struct sockaddr_in sockaddr {};
+    struct sockaddr_in sockaddr;
+
+    QUEUE_STATUS status = STATUE_SLEEP;
+    std::string msg {};
 };
 struct SockEvents
 {
@@ -58,6 +77,8 @@ public:
           recvCb_(std::forward <T>(recvCb)),
           sendCb_(std::forward <T>(sendCb)) {}
 
+    virtual ~Reactor () noexcept = default;
+
     inline void accept (ParamsType &params) const
     {
         acceptCb_(params);
@@ -80,7 +101,20 @@ class EventPoll
 {
 public:
     explicit EventPoll (int size = 1024)
-        : epfd(epoll_create(size)) {}
+        : epfd(epoll_create(size))
+    {
+        // 用于退出epoll_wait 阻塞
+        unixfd = socket(AF_UNIX, SOCK_DGRAM, 0);
+        event.data.fd = unixfd;
+        event.events = EPOLLIN;
+
+        epoll_ctl(epfd, EPOLL_CTL_ADD, unixfd, &event);
+    }
+
+    virtual ~EventPoll () noexcept
+    {
+        close();
+    }
 
     void epollAddEvent (SockEpollPtr &params)
     {
@@ -88,6 +122,8 @@ public:
         event.events = EPOLLIN | EPOLLHUP | EPOLLRDHUP;
 
         epoll_ctl(epfd, EPOLL_CTL_ADD, params.fd, &event);
+
+        allEpollPtr.emplace_back(&params);
     }
     void epollModEvent (SockEpollPtr &params, int events)
     {
@@ -102,6 +138,9 @@ public:
         event.events = 0;
 
         epoll_ctl(epfd, EPOLL_CTL_DEL, params.fd, &event);
+        allEpollPtr.erase(
+            std::remove(allEpollPtr.begin(), allEpollPtr.end(), &params),
+            allEpollPtr.end());
     }
     int epollWait (ReactorParams &params) // NOLINT
     {
@@ -132,125 +171,193 @@ public:
         return ret;
     }
 
+    void close ()
+    {
+        event.data.fd = unixfd;
+        event.events = EPOLLOUT;
+        epoll_ctl(epfd, EPOLL_CTL_MOD, unixfd, &event);
+
+        for (const auto &item : allEpollPtr)
+        {
+            ::close(item->fd);
+            delete item;
+        }
+
+        ::close(unixfd);
+        ::close(epfd);
+    }
+
 private:
     int epfd;
+    int unixfd;
     struct epoll_event event {};
+    std::vector <SockEpollPtr *> allEpollPtr {};
 };
 
-class IoQueue
+class IoReactor : protected Reactor
 {
-    using SockfdQueueType = std::queue <SockEpollPtr *>;
-public:
-    enum QUEUE_STATUS
-    {
-        STATUS_RECV,
-        STATUS_SEND
-    };
-    inline SockfdQueueType &sockfdQueue () noexcept
-    {
-        return sockfdQueue_;
-    }
-    inline void setStatus (QUEUE_STATUS status) noexcept
-    {
-        status_ = status;
-    }
-    inline std::vector <std::string> &recvVec () noexcept
-    {
-        return recvVec_;
-    }
-    inline std::vector <std::string> &sendVec () noexcept
-    {
-        return sendVec_;
-    }
-
-    void ioHandler ()
-    {
-        switch (status_)
-        {
-            case STATUS_RECV:
-                recvHandler();
-                break;
-            case STATUS_SEND:
-                break;
-        }
-    }
-private:
-    void recvHandler ()
-    {
-        SockEpollPtr *sockParams;
-        int ret;
-        char message[MESSAGE_SIZE_MAX];
-        while (!sockfdQueue_.empty())
-        {
-            sockParams = sockfdQueue_.front();
-            sockfdQueue_.pop();
-
-            do
-            {
-                ret = recv(sockParams->fd, message, MESSAGE_SIZE_MAX, 0);
-                // 不做处理  留给mainReactor去处理
-                if (ret < 0)
-                {
-                    if (errno == EINTR)
-                        continue;
-                    PRINT_ERROR("recv error : %s", std::strerror(errno));
-                    break;
-                }
-                else if (ret == 0)
-                {
-                    PRINT_INFO("pipe close : %s, sockfd : %d",
-                        Utils::getIpAndHost(sockParams->sockaddr).c_str(),
-                        sockParams->fd);
-                    break;
-                }
-            } while (ret <= 0);
-
-            recvVec_.emplace_back(message);
-        }
-    }
-
-    SockfdQueueType sockfdQueue_;
-    QUEUE_STATUS status_ = STATUS_RECV;
-    std::vector <std::string> recvVec_;
-    std::vector <std::string> sendVec_;
-};
-class IoReactor : Reactor, public IoQueue
-{
+    using SockfdQueueType = std::list <SockEpollPtr *>;
 public:
     IoReactor ()
         : Reactor(
         std::bind(&IoReactor::acceptCallback, this, std::placeholders::_1),
         std::bind(&IoReactor::recvCallback, this, std::placeholders::_1),
-        std::bind(&IoReactor::sendCallback, this, std::placeholders::_1)), IoQueue() {}
+        std::bind(&IoReactor::sendCallback, this, std::placeholders::_1)) {}
 
+    ~IoReactor () noexcept override = default;
+
+    inline SockfdQueueType &sockfdQueue () noexcept
+    {
+        return sockfdQueue_;
+    }
+    inline void setStatus (SockEpollPtr::QUEUE_STATUS status) noexcept
+    {
+        status_ = status;
+    }
+
+    void ioHandler ()
+    {
+        if (!sockfdQueue_.empty())
+            switch (status_)
+            {
+                case SockEpollPtr::STATUS_RECV:
+                    recvSocketHandler();
+                    setStatus(SockEpollPtr::STATUS_RECV_DOWN);
+                    break;
+                case SockEpollPtr::STATUS_SEND:
+                    break;
+                case SockEpollPtr::STATUS_RECV_DOWN:
+                    break;
+                case SockEpollPtr::STATUS_SEND_DOWN:
+                    break;
+                case SockEpollPtr::STATUE_SLEEP:
+                    break;
+                case SockEpollPtr::STATUS_RECV_BAD:
+                    break;
+            }
+    }
+
+protected:
+    template <class T>
+    IoReactor (T &&acceptCb, T &&recvCb, T &&sendCb)
+        : Reactor(
+        std::forward <T>(acceptCb),
+        std::forward <T>(recvCb),
+        std::forward <T>(sendCb)) {}
+
+public:
+    void mainLoop (
+        SockfdQueueType &queue,
+        std::mutex &mutex,
+        bool &terminate
+    )
+    {
+        PRINT_INFO("thread %lu is running...", pthread_self());
+        while (!terminate)
+        {
+            for (int i = 0; i < defaultLoopNum; ++i)
+            {
+                if (!sockfdQueue().empty())
+                    break;
+            }
+
+            if (sockfdQueue().empty())
+            {
+                // 休眠
+                mutex.lock();
+                mutex.unlock();
+                continue;
+            }
+
+            ioHandler();
+            mutex.lock();
+            queue.merge(std::move(sockfdQueue_));
+            sockfdQueue_.clear();
+            mutex.unlock();
+        }
+    }
 private:
+    void recvSocketHandler ()
+    {
+        if (!sockfdQueue_.empty())
+            for (SockEpollPtr *sockParams : sockfdQueue_)
+                recv(*sockParams);
+    }
+
     void acceptCallback (ParamsType &fnParams)
     {
-    }
-    void recvCallback (ParamsType &fnParams)
-    {
 
+    }
+    void recvCallback (ParamsType &fnParams) // NOLINT
+    {
+        int ret;
+        char message[MESSAGE_SIZE_MAX];
+        do
+        {
+            ret = ::recv(fnParams.fd, message, MESSAGE_SIZE_MAX, 0);
+            // 不做处理  留给mainReactor去处理
+            if (ret < 0)
+            {
+                if (errno == EINTR)
+                    continue;
+                PRINT_ERROR("recv error : %s", std::strerror(errno));
+                fnParams.status = SockEpollPtr::STATUS_RECV_BAD;
+                break;
+            }
+            else if (ret == 0)
+            {
+                PRINT_INFO("pipe close : %s, sockfd : %d",
+                           Utils::getIpAndHost(fnParams.sockaddr).c_str(),
+                           fnParams.fd);
+                fnParams.status = SockEpollPtr::STATUS_RECV_BAD;
+                break;
+            }
+            else
+            {
+                message[ret] = '\0';
+                PRINT_INFO("get client command : %s,  addr : %s, sockfd : %d, thread : %lu",
+                           message,
+                           Utils::getIpAndHost(fnParams.sockaddr).c_str(),
+                           fnParams.fd,
+                           pthread_self());
+
+                fnParams.msg = message;
+                fnParams.status = SockEpollPtr::STATUS_RECV_DOWN;
+            }
+        } while (ret <= 0);
     }
     void sendCallback (ParamsType &fnParams)
     {
 
     }
 
+    static constexpr int defaultLoopNum = 1000000;
+
+    SockfdQueueType sockfdQueue_;
+    SockEpollPtr::QUEUE_STATUS status_ = SockEpollPtr::STATUS_RECV;
 };
 
 template <int IoThreadNum>
-class MainReactor : Reactor, EventPoll, IoQueue
+class MainReactor : IoReactor, EventPoll
 {
+    friend class Tcp <IoThreadNum>;
 public:
     explicit MainReactor (
         int listenfd,
         std::chrono::milliseconds expireTime = std::chrono::milliseconds { 0 }
     )
-        : Reactor(
-        std::bind(&MainReactor::acceptCallback, this, std::placeholders::_1),
-        std::bind(&MainReactor::recvCallback, this, std::placeholders::_1),
-        std::bind(&MainReactor::sendCallback, this, std::placeholders::_1)),
-          EventPoll(), params(expireTime), listenfd(listenfd), IoQueue() {}
+        : IoReactor(),
+          EventPoll(), params(expireTime), listenfd(listenfd) {}
+
+    ~MainReactor () noexcept override
+    {
+        terminate = true;
+        mutex.unlock();
+        ::close(listenfd);
+
+        for (int i = 0; i < IoThreadNum; ++i)
+            ioThread[i].join();
+    }
 
     void mainLoop ()
     {
@@ -259,37 +366,62 @@ public:
         int ret;
         struct epoll_event *event;
 
-        mutex.lock();
+        setIoThread();
+        terminate = true;
         while (!terminate)
         {
+            // 上一次循环只有accept, 不需要重新锁
+            if (onceLoopRecvSum != 0 && onceLoopSendSum != 0)
+                mutex.lock();
             ret = epollWait(params);
+            if (terminate)
+                return;
 
+            onceLoopRecvSum = 0;
+            onceLoopSendSum = 0;
             for (int i = 0; i < ret; ++i)
             {
                 event = &params.sockEvents.epollEvents[i];
                 epollPtr = static_cast<SockEpollPtr *>(event->data.ptr);
-                if (epollPtr->fd == listenfd)
-                    accept(*epollPtr);
-                else if (event->events & EPOLLIN)
-                    recv(*epollPtr);
-                else if (event->events & EPOLLOUT)
-                    send(*epollPtr);
-                else if (event->events & EPOLLRDHUP)
+                if (event->events & EPOLLRDHUP)
                 {
-                    PRINT_INFO("对端关闭 : %d\n", event->data.fd);
+                    PRINT_INFO("对端关闭， addr : %s , fd : %d",
+                               Utils::getIpAndHost(epollPtr->sockaddr).c_str(),
+                               epollPtr->fd);
                     closeSock(*epollPtr);
                 }
                 else if (event->events & EPOLLHUP)
                 {
-                    PRINT_WARNING("连接发生挂起 : %d\n", event->data.fd);
+                    PRINT_WARNING("连接发生挂起 : %d", epollPtr->fd);
                     closeSock(*epollPtr);
                 }
+                else if (epollPtr->fd == listenfd)
+                    acceptCallback(*epollPtr);
+                else if (event->events & EPOLLIN)
+                    recvCallback(*epollPtr);
+                else if (event->events & EPOLLOUT)
+                    sendCallback(*epollPtr);
             }
 
-            distributeRecvSocket();
+            if (onceLoopRecvSum)
+                distributeRecvSocket();
         }
     }
 private:
+    void setIoThread ()
+    {
+        for (int i = 0; i < IoThreadNum; ++i)
+        {
+            ioThread[i] = std::move(
+                std::thread(
+                    &IoReactor::mainLoop,
+                    &ioReactor[i],
+                    std::ref(sockfdQueue()),
+                    std::ref(mutex),
+                    std::ref(terminate)
+                ));
+        }
+    }
     void acceptCallback (ParamsType &fnParams)
     {
         static socklen_t len = sizeof(struct sockaddr);
@@ -300,17 +432,21 @@ private:
             return;
         }
 
-        auto *sockParams = new SockEpollPtr(fd);
+        setSockReuseAddr(fd);
+        auto *sockParams = new SockEpollPtr(fd, clientAddr);
         epollAddEvent(*sockParams);
 
         PRINT_INFO("accept by %s:%d , fd : %d",
-            inet_ntoa(clientAddr.sin_addr),
-            ntohs(clientAddr.sin_port),
-            fd);
+                   inet_ntoa(clientAddr.sin_addr),
+                   ntohs(clientAddr.sin_port),
+                   fd);
     }
     void recvCallback (ParamsType &fnParams)
     {
-        sockfdQueue().emplace(&fnParams);
+        IoReactor &reactor = getRandomReactor();
+        fnParams.status = SockEpollPtr::STATUS_RECV;
+        reactor.sockfdQueue().emplace_back(&fnParams);
+        onceLoopRecvSum++;
     }
     void sendCallback (ParamsType &fnParams)
     {
@@ -319,32 +455,56 @@ private:
 
     void distributeRecvSocket ()
     {
-        recvCount = sockfdQueue().size();
-        int size = std::ceil(sockfdQueue().size() / (IoThreadNum + 1));
+        setStatus(SockEpollPtr::STATUS_RECV);
+        for (int i = 0; i < IoThreadNum; ++i)
+            ioReactor[i].setStatus(SockEpollPtr::STATUS_RECV);
 
-        SockEpollPtr *sockfd;
-        IoReactor *io = &ioReactor[0];
-        while (sockfdQueue().size() > size)
+        // 解锁让线程去处理recv
+        mutex.unlock();
+
+        ioHandler();
+
+        while (sockfdQueue().size() != onceLoopRecvSum)
+            std::this_thread::sleep_for(std::chrono::microseconds { 100 });
+
+        recvCommandHandler(*this);
+        // 123
+    }
+
+    inline void recvCommandHandler (IoReactor &ioQueue)
+    {
+        ioQueue.setStatus(SockEpollPtr::STATUS_RECV_DOWN);
+        for (SockEpollPtr *sockEpollPtr : ioQueue.sockfdQueue())
         {
-            sockfd = sockfdQueue().front();
-            sockfdQueue().pop();
-
-            io->sockfdQueue().emplace(sockfd);
-            if (++io == reinterpret_cast<IoReactor *>(&ioReactor + 1))
-                io = &ioReactor[0];
+            // 处理命令
+            PRINT_INFO("get message : %s", sockEpollPtr->msg.c_str());
         }
 
-        setStatus(STATUS_RECV);
-        io->setStatus(STATUS_RECV);
-
-        mutex.unlock();
-    }
+        ioQueue.sockfdQueue().clear();
+    };
 
     inline void closeSock (ParamsType &fnParams) noexcept
     {
         epollDelEvent(fnParams);
-        close(fnParams.fd);
+        ::close(fnParams.fd);
         delete &fnParams;
+    }
+
+    inline IoReactor &getRandomReactor ()
+    {
+        static size_t index = 0;
+        size_t randomReactor = ++index % (IoThreadNum + 1);
+        if (randomReactor == 4)
+        {
+            return *this;
+        }
+        return ioReactor[randomReactor];
+    }
+
+    static inline void setSockReuseAddr (int sockfd)
+    {
+        int opt = 1;
+        setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (char *)&opt, sizeof(int));
     }
 
 private:
@@ -353,8 +513,10 @@ private:
     int listenfd;
     struct sockaddr_in clientAddr {};
     std::mutex mutex;
-    int recvCount = 0;
+    int onceLoopRecvSum = 0;
+    int onceLoopSendSum = 0;
 
     IoReactor ioReactor[IoThreadNum];
+    std::thread ioThread[IoThreadNum];
 };
 #endif //LINUX_SERVER_LIB_KV_STORE_EPOLL_H_

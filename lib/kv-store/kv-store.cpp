@@ -7,15 +7,16 @@
 #include <chrono>
 #include "tcp.h"
 #include <algorithm>
-#include "logger.h"
 
 int main ()
 {
-    Logger logger("../log/");
-    LOG_WARING("{0}+{1}={2}", 1, 2, 1 + 2);
-    spdlog::default_logger()->flush();
-    MainReactor <4> reactor(3);
-    reactor.mainLoop();
+    // setbuf(stdout, nullptr);
+    // Tcp <> tcpServer(3000);
+    //
+    // tcpServer.mainLoop();
+    std::string aa { "set ddd            dsa         " };
+    auto res = Utils::stringSplit(aa, ' ', true);
 
+    std::chrono::milliseconds a { -1 };
     return 0;
 }

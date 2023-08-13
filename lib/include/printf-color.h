@@ -42,13 +42,13 @@
 #define PRINT_WARNING(str, ...)
 #else
 
-#define PRINT_INFO(str, ...) STD printf(UNDERLINE "%s:%s:%d" NONE "\t" str "\n", \
+#define PRINT_INFO(str, ...) STD printf(UNDERLINE "%s [%s:%d]" NONE "\t" str "\n", \
                                 __FILE__, __FUNCTION__, __LINE__, ##__VA_ARGS__)
 
-#define PRINT_ERROR(str, ...) STD fprintf(stderr, UNDERLINE "%s:%s:%d" NONE "\t" str "\n", \
+#define PRINT_ERROR(str, ...) STD fprintf(stderr, UNDERLINE "%s [%s:%d]" NONE "\t" str "\n", \
                                 __FILE__, __FUNCTION__, __LINE__, ##__VA_ARGS__)
 
-#define PRINT_WARNING(str, ...) STD printf(BROWN UNDERLINE"%s:%s:%d" NONE "\t" YELLOW str "\n" NONE, \
+#define PRINT_WARNING(str, ...) STD printf(BROWN UNDERLINE"%s [%s:%d]" NONE "\t" YELLOW str "\n" NONE, \
                                     __FILE__, __FUNCTION__, __LINE__, ##__VA_ARGS__)
 
 #endif

@@ -11,31 +11,43 @@
 #include "global.h"
 #include "reactor.h"
 
+template <int IoThreadNum = 4>
 class Tcp
 {
 public:
-    Tcp (const std::string &host, uint16_t port) // NOLINT
+    explicit Tcp (uint16_t port)
+        : sockfd(createTcpServer(port, INADDR_ANY)), reactor(sockfd) {}
+    Tcp (uint16_t port, const std::string &host) // NOLINT
+        : sockfd(createTcpServer(port, inet_addr(host.c_str()))), reactor(sockfd) {}
+
+    void mainLoop ()
     {
-        createTcpServer(host, port);
+        reactor.mainLoop();
     }
 
 private:
-    void createTcpServer (const std::string &host, uint16_t port)
+    static int createTcpServer (uint16_t port, in_addr_t inAddr)
     {
-        sockfd = socket(AF_INET, SOCK_STREAM, 0);
+        int sockfd = socket(AF_INET, SOCK_STREAM, 0);
         CHECK_RET(sockfd < 3, socket);
-
+        MainReactor <IoThreadNum>::setSockReuseAddr(sockfd);
+        
         struct sockaddr_in addr {
             .sin_family = AF_INET,
             .sin_port = htons(port),
             .sin_addr = {
-                .s_addr = inet_addr(host.c_str())
+                .s_addr = inAddr
             }
         };
         CHECK_RET(bind(sockfd, (const struct sockaddr *)&addr, sizeof(struct sockaddr)) != 0, bind);
         CHECK_RET(listen(sockfd, 1024) != 0, listen);
+
+        PRINT_INFO("create server on listen : %d", port);
+
+        return sockfd;
     }
 
     int sockfd;
+    MainReactor <IoThreadNum> reactor;
 };
 #endif //LINUX_SERVER_LIB_KV_STORE_TCP_H_

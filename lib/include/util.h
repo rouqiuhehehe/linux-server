@@ -21,12 +21,49 @@
 
 namespace Utils
 {
+    /*
+     * @param str 输入字符串
+     * @param split 分隔符
+     * @param isContinuously 分割时是否判断连续的分隔符
+     * @return std::vector<std::string>
+     */
+    inline std::vector <std::string> stringSplit (
+        const std::string &str,
+        const char split,
+        bool isContinuously = true
+    )
+    {
+        if (str.empty())
+            return {};
+
+        std::vector <std::string> res;
+        size_t count = str.find(split);
+        size_t index = 0;
+        if (count == std::string::npos)
+            count = str.size();
+        while ((index + count) < str.size())
+        {
+            res.emplace_back(str.substr(index, count));
+
+            index += count + 1;
+            count = 0;
+            if (isContinuously)
+            {
+                while (str[index++] == split && index < str.size());
+                index--;
+            }
+
+            while (str[index + ++count] != split && (index + count) < str.size());
+        }
+
+        return res;
+    }
     inline std::string getIpAndHost (const struct sockaddr_in &sockaddrIn)
     {
         char *ip = inet_ntoa(sockaddrIn.sin_addr);
         uint16_t port = ntohs(sockaddrIn.sin_port);
 
-        return std::string(ip) + std::to_string(port);
+        return std::string(ip) + ":" + std::to_string(port);
     }
     inline std::string getUuid ()
     {
