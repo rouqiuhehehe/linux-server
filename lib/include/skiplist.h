@@ -7,7 +7,7 @@
 
 #include <functional>
 #include <memory>
-#include "util.h"
+#include "util/util.h"
 #include <chrono>
 template <class T, int MaxLevel = 32, class Compare = std::less <T>>
 class SkipList

@@ -10,7 +10,7 @@
 #include <string.h>
 #include <errno.h>
 
-#include "global.h"
+#include "util/global.h"
 
 #define EPOLL_MAX_EVENTS 512
 #define BUFFER_LEN (1024 * 64)

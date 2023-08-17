@@ -2,8 +2,8 @@
 // Created by Yoshiki on 2023/6/2.
 //
 
-#include "global.h"
-#include "util.h"
+#include "util/global.h"
+#include "util/util.h"
 #include <iostream>
 
 class Widget;

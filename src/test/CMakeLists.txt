@@ -14,3 +14,4 @@ target_link_libraries(redis-test hiredis event)
 target_include_directories(redis-test PUBLIC /usr/local/include)
 
 add_subdirectory(dpdk-test)
+add_subdirectory(cpp-hook)

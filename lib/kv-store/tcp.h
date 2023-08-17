@@ -8,7 +8,7 @@
 #include <unistd.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
-#include "global.h"
+#include "util/global.h"
 #include "reactor.h"
 
 template <int IoThreadNum = 4>

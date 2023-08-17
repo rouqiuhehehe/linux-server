@@ -5,7 +5,7 @@
 #ifndef HELLO_WORLD_INCLUDE_MYSQLRESULT_H_
 #define HELLO_WORLD_INCLUDE_MYSQLRESULT_H_
 
-#include "global.h"
+#include "util/global.h"
 #include <mysql.h>
 #include "printf-color.h"
 #include <iostream>
@@ -13,7 +13,7 @@
 #include <unordered_map>
 #include <sstream>
 #include "mysql/mysqlcommon.h"
-#include "global.h"
+#include "util/global.h"
 
 class MysqlResSet;
 class MysqlResSetPrivate : public BasePrivate

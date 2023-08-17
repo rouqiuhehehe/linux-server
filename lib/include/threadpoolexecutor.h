@@ -5,8 +5,8 @@
 #ifndef HELLO_WORLD_THREAD_POOL_EXECTOR_THREADPOOLEXECTOR_H_
 #define HELLO_WORLD_THREAD_POOL_EXECTOR_THREADPOOLEXECTOR_H_
 
-#include "global.h"
-#include "util.h"
+#include "util/global.h"
+#include "util/util.h"
 #include <thread>
 #include <functional>
 #include <future>

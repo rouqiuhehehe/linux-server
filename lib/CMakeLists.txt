@@ -1,7 +1,7 @@
 project(linux-server-lib)
 set(LIBRARY_OUTPUT_PATH ${CMAKE_BINARY_DIR}/lib)
 
-add_library(async async.c include/global.h include/util.h)
+add_library(async async.c include/util/global.h include/util/util.h)
 target_link_libraries(async pthread)
 
 add_subdirectory(coroutine)

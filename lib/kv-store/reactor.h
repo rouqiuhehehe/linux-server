@@ -19,18 +19,22 @@
 #define MAX_EPOLL_ONCE_NUM 1024
 #define MESSAGE_SIZE_MAX 65535
 
+#define SET_COMMON_EPOLL_FLAG(event) (event | EPOLLHUP | EPOLLRDHUP)
+
 template <int>
 class Tcp;
 struct SockEpollPtr
 {
     enum QUEUE_STATUS
     {
+        STATUS_LISTEN,
         STATUE_SLEEP,
         STATUS_RECV,
         STATUS_RECV_DOWN,
         STATUS_RECV_BAD,
         STATUS_SEND,
-        STATUS_SEND_DOWN
+        STATUS_SEND_DOWN,
+        STATUS_SEND_BAD
     };
     explicit SockEpollPtr (int fd)
         : fd(fd), sockaddr(sockaddr_in()) {}
@@ -38,8 +42,9 @@ struct SockEpollPtr
         : fd(fd), sockaddr(sockaddrIn) {}
     int fd;
     struct sockaddr_in sockaddr;
-
-    QUEUE_STATUS status = STATUE_SLEEP;
+    ResValueType resValue;
+    CommandParams commandParams;
+    QUEUE_STATUS status = STATUS_LISTEN;
     std::string msg {};
 };
 struct SockEvents
@@ -119,7 +124,7 @@ public:
     void epollAddEvent (SockEpollPtr &params)
     {
         event.data.ptr = &params;
-        event.events = EPOLLIN | EPOLLHUP | EPOLLRDHUP;
+        event.events = SET_COMMON_EPOLL_FLAG(EPOLLIN);
 
         epoll_ctl(epfd, EPOLL_CTL_ADD, params.fd, &event);
 
@@ -128,7 +133,7 @@ public:
     void epollModEvent (SockEpollPtr &params, int events)
     {
         event.data.ptr = &params;
-        event.events = events | EPOLLHUP | EPOLLRDHUP;
+        event.events = SET_COMMON_EPOLL_FLAG(events);
 
         epoll_ctl(epfd, EPOLL_CTL_MOD, params.fd, &event);
     }
@@ -196,6 +201,7 @@ private:
 
 class IoReactor : protected Reactor
 {
+protected:
     using SockfdQueueType = std::list <SockEpollPtr *>;
 public:
     IoReactor ()
@@ -225,14 +231,15 @@ public:
                     setStatus(SockEpollPtr::STATUS_RECV_DOWN);
                     break;
                 case SockEpollPtr::STATUS_SEND:
+                    sendSocketHandler();
+                    setStatus(SockEpollPtr::STATUS_SEND_DOWN);
                     break;
                 case SockEpollPtr::STATUS_RECV_DOWN:
-                    break;
                 case SockEpollPtr::STATUS_SEND_DOWN:
-                    break;
                 case SockEpollPtr::STATUE_SLEEP:
-                    break;
                 case SockEpollPtr::STATUS_RECV_BAD:
+                case SockEpollPtr::STATUS_LISTEN:
+                case SockEpollPtr::STATUS_SEND_BAD:
                     break;
             }
     }
@@ -271,17 +278,25 @@ public:
 
             ioHandler();
             mutex.lock();
+            // 合并任务
             queue.merge(std::move(sockfdQueue_));
             sockfdQueue_.clear();
             mutex.unlock();
         }
     }
 private:
-    void recvSocketHandler ()
+    inline void recvSocketHandler ()
     {
-        if (!sockfdQueue_.empty())
-            for (SockEpollPtr *sockParams : sockfdQueue_)
+        if (!sockfdQueue().empty())
+            for (SockEpollPtr *sockParams : sockfdQueue())
                 recv(*sockParams);
+    }
+
+    inline void sendSocketHandler ()
+    {
+        if (!sockfdQueue().empty())
+            for (SockEpollPtr *sockParams : sockfdQueue())
+                send(*sockParams);
     }
 
     void acceptCallback (ParamsType &fnParams)
@@ -307,8 +322,8 @@ private:
             else if (ret == 0)
             {
                 PRINT_INFO("pipe close : %s, sockfd : %d",
-                           Utils::getIpAndHost(fnParams.sockaddr).c_str(),
-                           fnParams.fd);
+                    Utils::getIpAndHost(fnParams.sockaddr).c_str(),
+                    fnParams.fd);
                 fnParams.status = SockEpollPtr::STATUS_RECV_BAD;
                 break;
             }
@@ -316,19 +331,83 @@ private:
             {
                 message[ret] = '\0';
                 PRINT_INFO("get client command : %s,  addr : %s, sockfd : %d, thread : %lu",
-                           message,
-                           Utils::getIpAndHost(fnParams.sockaddr).c_str(),
-                           fnParams.fd,
-                           pthread_self());
+                    message,
+                    Utils::getIpAndHost(fnParams.sockaddr).c_str(),
+                    fnParams.fd,
+                    pthread_self());
 
                 fnParams.msg = message;
+                // 命令解析
+                fnParams.commandParams = CommandHandler::splitCommandParams(fnParams.msg);
                 fnParams.status = SockEpollPtr::STATUS_RECV_DOWN;
             }
         } while (ret <= 0);
     }
-    void sendCallback (ParamsType &fnParams)
-    {
 
+    void sendCallback (ParamsType &fnParams) // NOLINT
+    {
+        int ret;
+        std::string resMessage = formatResValue(fnParams.resValue);
+
+        do
+        {
+            ret = ::send(fnParams.fd, resMessage.c_str(), resMessage.size(), 0);
+            // 不做处理  留给mainReactor去处理
+            if (ret < 0)
+            {
+                if (errno == EINTR)
+                    continue;
+                PRINT_ERROR("send error : %s", std::strerror(errno));
+                fnParams.status = SockEpollPtr::STATUS_SEND_BAD;
+                break;
+            }
+            else if (ret == 0)
+            {
+                PRINT_INFO("pipe close : %s, sockfd : %d",
+                    Utils::getIpAndHost(fnParams.sockaddr).c_str(),
+                    fnParams.fd);
+                fnParams.status = SockEpollPtr::STATUS_SEND_BAD;
+                break;
+            }
+            else
+            {
+                PRINT_INFO(
+                    "reply for command \"%s\", message : %s, addr : %s, sockfd : %d, thread : %lu",
+                    fnParams.msg.c_str(),
+                    resMessage.c_str(),
+                    Utils::getIpAndHost(fnParams.sockaddr).c_str(),
+                    fnParams.fd,
+                    pthread_self());
+
+                fnParams.status = SockEpollPtr::STATUS_SEND_DOWN;
+            }
+        } while (ret <= 0);
+    }
+
+    static std::string formatResValue (const ResValueType &resValue)
+    {
+        std::string resMessage;
+        int idx = 0;
+        switch (resValue.model)
+        {
+            case ResValueType::ReplyModel::REPLY_UNKNOWN:
+                break;
+            case ResValueType::ReplyModel::REPLY_INTEGER:
+            case ResValueType::ReplyModel::REPLY_STATUS:
+            case ResValueType::ReplyModel::REPLY_NIL:
+            case ResValueType::ReplyModel::REPLY_ERROR:
+            case ResValueType::ReplyModel::REPLY_STRING:
+                resMessage = resValue.value;
+                break;
+            case ResValueType::ReplyModel::REPLY_ARRAY:
+                std::stringstream stringFormatter;
+                for (auto &v : resValue.elements)
+                    stringFormatter << ++idx << ") \"" << std::move(formatResValue(v)) << std::endl;
+                resMessage = std::move(stringFormatter.str());
+                break;
+        }
+
+        return resMessage;
     }
 
     static constexpr int defaultLoopNum = 1000000;
@@ -366,13 +445,12 @@ public:
         int ret;
         struct epoll_event *event;
 
+        // 上锁让线程休眠
+        // distributeSendSocket distributeRecvSocket 解锁让线程处理send recv 后，收集处理好的fd，继续上锁
+        mutex.lock();
         setIoThread();
-        terminate = true;
         while (!terminate)
         {
-            // 上一次循环只有accept, 不需要重新锁
-            if (onceLoopRecvSum != 0 && onceLoopSendSum != 0)
-                mutex.lock();
             ret = epollWait(params);
             if (terminate)
                 return;
@@ -386,8 +464,8 @@ public:
                 if (event->events & EPOLLRDHUP)
                 {
                     PRINT_INFO("对端关闭， addr : %s , fd : %d",
-                               Utils::getIpAndHost(epollPtr->sockaddr).c_str(),
-                               epollPtr->fd);
+                        Utils::getIpAndHost(epollPtr->sockaddr).c_str(),
+                        epollPtr->fd);
                     closeSock(*epollPtr);
                 }
                 else if (event->events & EPOLLHUP)
@@ -403,6 +481,8 @@ public:
                     sendCallback(*epollPtr);
             }
 
+            if (onceLoopSendSum)
+                distributeSendSocket();
             if (onceLoopRecvSum)
                 distributeRecvSocket();
         }
@@ -437,20 +517,21 @@ private:
         epollAddEvent(*sockParams);
 
         PRINT_INFO("accept by %s:%d , fd : %d",
-                   inet_ntoa(clientAddr.sin_addr),
-                   ntohs(clientAddr.sin_port),
-                   fd);
+            inet_ntoa(clientAddr.sin_addr),
+            ntohs(clientAddr.sin_port),
+            fd);
     }
     void recvCallback (ParamsType &fnParams)
     {
-        IoReactor &reactor = getRandomReactor();
         fnParams.status = SockEpollPtr::STATUS_RECV;
-        reactor.sockfdQueue().emplace_back(&fnParams);
+        sockfdQueue().emplace_back(&fnParams);
         onceLoopRecvSum++;
     }
     void sendCallback (ParamsType &fnParams)
     {
-
+        fnParams.status = SockEpollPtr::STATUS_SEND;
+        sockfdQueue().emplace_back(&fnParams);
+        onceLoopSendSum++;
     }
 
     void distributeRecvSocket ()
@@ -459,29 +540,69 @@ private:
         for (int i = 0; i < IoThreadNum; ++i)
             ioReactor[i].setStatus(SockEpollPtr::STATUS_RECV);
 
-        // 解锁让线程去处理recv
-        mutex.unlock();
+        distributeTask(onceLoopRecvSum);
 
-        ioHandler();
-
-        while (sockfdQueue().size() != onceLoopRecvSum)
-            std::this_thread::sleep_for(std::chrono::microseconds { 100 });
-
-        recvCommandHandler(*this);
+        recvAfterHandler();
         // 123
     }
 
-    inline void recvCommandHandler (IoReactor &ioQueue)
+    void distributeSendSocket ()
     {
-        ioQueue.setStatus(SockEpollPtr::STATUS_RECV_DOWN);
-        for (SockEpollPtr *sockEpollPtr : ioQueue.sockfdQueue())
+        setStatus(SockEpollPtr::STATUS_SEND);
+        for (int i = 0; i < IoThreadNum; ++i)
+            ioReactor[i].setStatus(SockEpollPtr::STATUS_SEND);
+
+        distributeTask(onceLoopSendSum);
+
+        sendAfterHandler();
+    }
+
+    inline void distributeTask (const int &num)
+    {
+        static SockfdQueueType::iterator nextIt;
+        // 分发任务
+        for (auto it = sockfdQueue().begin(); it != sockfdQueue().end(); ++it)
+        {
+            IoReactor &reactor = getRandomReactor();
+            if (&reactor != this)
+            {
+                nextIt = std::next(it);
+                reactor.sockfdQueue().splice(reactor.sockfdQueue().end(), sockfdQueue(), it);
+                it = nextIt;
+            }
+        }
+        // 解锁让线程去处理fd
+        mutex.unlock();
+        ioHandler();
+
+        while (sockfdQueue().size() != num)
+            std::this_thread::sleep_for(std::chrono::microseconds { 100 });
+
+        // 让io线程休眠
+        mutex.lock();
+    }
+
+    inline void recvAfterHandler ()
+    {
+        for (SockEpollPtr *sockEpollPtr : sockfdQueue())
         {
             // 处理命令
             PRINT_INFO("get message : %s", sockEpollPtr->msg.c_str());
+
+            sockEpollPtr->resValue = commandHandler.handlerCommand(sockEpollPtr->commandParams);
+            epollModEvent(*sockEpollPtr, SET_COMMON_EPOLL_FLAG(EPOLLOUT));
         }
 
-        ioQueue.sockfdQueue().clear();
+        sockfdQueue().clear();
     };
+
+    inline void sendAfterHandler ()
+    {
+        for (SockEpollPtr *sockEpollPtr : sockfdQueue())
+            epollModEvent(*sockEpollPtr, SET_COMMON_EPOLL_FLAG(EPOLLIN));
+
+        sockfdQueue().clear();
+    }
 
     inline void closeSock (ParamsType &fnParams) noexcept
     {
@@ -515,6 +636,7 @@ private:
     std::mutex mutex;
     int onceLoopRecvSum = 0;
     int onceLoopSendSum = 0;
+    CommandHandler commandHandler;
 
     IoReactor ioReactor[IoThreadNum];
     std::thread ioThread[IoThreadNum];

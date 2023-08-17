@@ -15,7 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "global.h"
+#include "util/global.h"
 
 #define WORKER_PROCESS_NUM 4
 #define EPOLL_MAX_NUM 512

@@ -6,8 +6,8 @@
 #define LINUX_SERVER_LIB_INCLUDE_TIMEOUT_H_
 
 #include <functional>
-#include "global.h"
-#include "util.h"
+#include "util/global.h"
+#include "util/util.h"
 #include <chrono>
 #include <set>
 #include <thread>

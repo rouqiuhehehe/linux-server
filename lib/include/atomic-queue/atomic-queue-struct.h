@@ -5,10 +5,10 @@
 #ifndef LINUX_SERVER_LIB_INCLUDE_ATOMIC_QUEUE_ATOMIC_QUEUE_STRUCT_H_
 #define LINUX_SERVER_LIB_INCLUDE_ATOMIC_QUEUE_ATOMIC_QUEUE_STRUCT_H_
 
-#include "global.h"
+#include "util/global.h"
 #include <list>
 #include <atomic>
-#include "util.h"
+#include "util/util.h"
 #include <thread>
 
 #define ATOMIC_QUEUE_STRUCT_DEFAULT_SIZE (1 << 16)
