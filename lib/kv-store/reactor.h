@@ -322,8 +322,8 @@ private:
             else if (ret == 0)
             {
                 PRINT_INFO("pipe close : %s, sockfd : %d",
-                    Utils::getIpAndHost(fnParams.sockaddr).c_str(),
-                    fnParams.fd);
+                           Utils::getIpAndHost(fnParams.sockaddr).c_str(),
+                           fnParams.fd);
                 fnParams.status = SockEpollPtr::STATUS_RECV_BAD;
                 break;
             }
@@ -331,10 +331,10 @@ private:
             {
                 message[ret] = '\0';
                 PRINT_INFO("get client command : %s,  addr : %s, sockfd : %d, thread : %lu",
-                    message,
-                    Utils::getIpAndHost(fnParams.sockaddr).c_str(),
-                    fnParams.fd,
-                    pthread_self());
+                           message,
+                           Utils::getIpAndHost(fnParams.sockaddr).c_str(),
+                           fnParams.fd,
+                           pthread_self());
 
                 fnParams.msg = message;
                 // 命令解析
@@ -364,8 +364,8 @@ private:
             else if (ret == 0)
             {
                 PRINT_INFO("pipe close : %s, sockfd : %d",
-                    Utils::getIpAndHost(fnParams.sockaddr).c_str(),
-                    fnParams.fd);
+                           Utils::getIpAndHost(fnParams.sockaddr).c_str(),
+                           fnParams.fd);
                 fnParams.status = SockEpollPtr::STATUS_SEND_BAD;
                 break;
             }
@@ -393,6 +393,9 @@ private:
             case ResValueType::ReplyModel::REPLY_UNKNOWN:
                 break;
             case ResValueType::ReplyModel::REPLY_INTEGER:
+                resMessage = "(integer) ";
+                resMessage += resValue.value;
+                break;
             case ResValueType::ReplyModel::REPLY_STATUS:
             case ResValueType::ReplyModel::REPLY_NIL:
             case ResValueType::ReplyModel::REPLY_ERROR:
@@ -402,7 +405,7 @@ private:
             case ResValueType::ReplyModel::REPLY_ARRAY:
                 std::stringstream stringFormatter;
                 for (auto &v : resValue.elements)
-                    stringFormatter << ++idx << ") \"" << std::move(formatResValue(v)) << std::endl;
+                    stringFormatter << ++idx << ") \"" << formatResValue(v) << std::endl;
                 resMessage = std::move(stringFormatter.str());
                 break;
         }
@@ -455,6 +458,9 @@ public:
             if (terminate)
                 return;
 
+            // 每次epoll_wait返回后检查一次过期的key
+            commandHandler.checkExpireKeys();
+
             onceLoopRecvSum = 0;
             onceLoopSendSum = 0;
             for (int i = 0; i < ret; ++i)
@@ -464,8 +470,8 @@ public:
                 if (event->events & EPOLLRDHUP)
                 {
                     PRINT_INFO("对端关闭， addr : %s , fd : %d",
-                        Utils::getIpAndHost(epollPtr->sockaddr).c_str(),
-                        epollPtr->fd);
+                               Utils::getIpAndHost(epollPtr->sockaddr).c_str(),
+                               epollPtr->fd);
                     closeSock(*epollPtr);
                 }
                 else if (event->events & EPOLLHUP)
@@ -517,9 +523,9 @@ private:
         epollAddEvent(*sockParams);
 
         PRINT_INFO("accept by %s:%d , fd : %d",
-            inet_ntoa(clientAddr.sin_addr),
-            ntohs(clientAddr.sin_port),
-            fd);
+                   inet_ntoa(clientAddr.sin_addr),
+                   ntohs(clientAddr.sin_port),
+                   fd);
     }
     void recvCallback (ParamsType &fnParams)
     {

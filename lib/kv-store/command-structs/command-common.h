@@ -19,6 +19,10 @@
 
 class CommandCommon
 {
+public:
+    inline virtual void clear () noexcept = 0;
+    inline virtual size_t delKey (const std::string &) noexcept = 0;
+
 protected:
     /*
      * 检查参数
@@ -33,7 +37,9 @@ protected:
         int paramsNum
     )
     {
-        bool hasError = paramsNum == -1 ? commandParams.params.empty() : (commandParams.params.size() != paramsNum);
+        bool hasError =
+            paramsNum == -1 ? commandParams.params.empty() : (commandParams.params.size()
+                != paramsNum);
         if (hasError)
         {
             resValue.setErrorStr(commandParams, ResValueType::ErrorType::WRONG_NUMBER);
@@ -48,6 +54,52 @@ protected:
         if (commandParams.key.empty())
         {
             resValue.setErrorStr(commandParams, ResValueType::ErrorType::WRONG_NUMBER);
+            return false;
+        }
+
+        return true;
+    }
+
+    static bool checkValueIsLongLong (
+        const CommandParams &commandParams,
+        ResValueType &resValue,
+        IntegerType *integer = nullptr
+    )
+    {
+        if (!Utils::StringHelper::stringIsLongLong(commandParams.params[0], integer))
+        {
+            resValue.setErrorStr(commandParams, ResValueType::ErrorType::VALUE_NOT_INTEGER);
+            return false;
+        }
+
+        return true;
+    }
+
+    static bool checkValueIsLongLong (
+        const CommandParams &commandParams,
+        const std::string &checkValue,
+        ResValueType &resValue,
+        IntegerType *integer = nullptr
+    )
+    {
+        if (!Utils::StringHelper::stringIsLongLong(checkValue, integer))
+        {
+            resValue.setErrorStr(commandParams, ResValueType::ErrorType::VALUE_NOT_INTEGER);
+            return false;
+        }
+
+        return true;
+    }
+
+    static bool checkExpireIsValid (
+        const CommandParams &commandParams,
+        const IntegerType expire,
+        ResValueType &resValue
+    )
+    {
+        if (expire <= 0)
+        {
+            resValue.setErrorStr(commandParams, ResValueType::ErrorType::INVALID_EXPIRE_TIME);
             return false;
         }
 

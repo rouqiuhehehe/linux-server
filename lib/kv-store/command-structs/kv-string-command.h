@@ -6,7 +6,7 @@
 #define LINUX_SERVER_LIB_KV_STORE_COMMAND_STRUCTS_KV_STRING_COMMAND_H_
 #include "command-common.h"
 
-class StringCommandHandler : CommandCommon
+class StringCommandHandler : public CommandCommon
 {
 public:
     enum Commands
@@ -28,7 +28,7 @@ public:
     inline ResValueType handlerCommand (
         const CommandParams &commandParams,
         Commands cmd,
-        bool &isNewKey
+        EventsObserverType &eventObserver
     )
     {
         ResValueType resValue;
@@ -40,7 +40,7 @@ public:
         switch (cmd)
         {
             case Commands::SET:
-                handlerSet(commandParams, resValue, isNewKey);
+                handlerSet(commandParams, resValue, eventObserver);
                 break;
             case Commands::GET:
                 handlerGet(commandParams, resValue);
@@ -73,11 +73,17 @@ public:
 
         return resValue;
     }
+
+    inline void clear () noexcept override {}
+    inline size_t delKey (const std::string &key) noexcept override
+    {
+        return keyValues.erase(key);
+    }
 private:
     void handlerSet (
         const CommandParams &commandParams,
         ResValueType &resValue,
-        bool &isNewKey
+        EventsObserverType &eventObserver
     )
     {
         // 检查参数长度 是否缺少参数
@@ -86,8 +92,14 @@ private:
             return;
 
         StringValueType value;
+
+        // 初始化emit参数
+        static EventAddObserverParams eventAddObserverParams;
+        eventAddObserverParams.structType = StructType::STRING;
+        eventAddObserverParams.key = commandParams.key;
+
         // 检查拓展参数 NX|XX EX|PX GET
-        success = handlerExtraParams(commandParams, value, resValue);
+        success = handlerExtraParams(commandParams, value, resValue, eventAddObserverParams);
         if (!success)
             return;
 
@@ -97,16 +109,31 @@ private:
         auto it = keyValues.find(commandParams.key);
         if (it == keyValues.end())
         {
+            if (value.setModel == StringValueType::SetModel::NX)
+            {
+                resValue.setNilFlag();
+                return;
+            }
             if (value.isReturnOldValue)
                 resValue.setNilFlag();
 
             keyValues.emplace(commandParams.key, value);
-            isNewKey = true;
+
+            eventObserver.emit(static_cast<int>(EventType::ADD_KEY), &eventAddObserverParams);
             return;
         }
 
+        if (value.setModel == StringValueType::SetModel::XX)
+        {
+            resValue.setNilFlag();
+            return;
+        }
         if (value.isReturnOldValue)
             resValue = std::move(it->second);
+
+        if (eventAddObserverParams.expire != std::chrono::milliseconds(0))
+            eventObserver.emit(static_cast<int>(EventType::RESET_EXPIRE), &eventAddObserverParams);
+
         it->second = value;
     }
 
@@ -139,11 +166,8 @@ private:
             return;
 
         IntegerType integer;
-        if (!Utils::StringHelper::stringIsLongLong(commandParams.params[0], &integer))
-        {
-            resValue.setErrorStr(commandParams, ResValueType::ErrorType::VALUE_NOT_INTEGER);
+        if (!checkValueIsLongLong(commandParams, resValue, &integer))
             return;
-        }
 
         handlerIncrCommon(commandParams, resValue, integer);
     }
@@ -164,11 +188,8 @@ private:
             return;
 
         IntegerType integer;
-        if (!Utils::StringHelper::stringIsLongLong(commandParams.params[0], &integer))
-        {
-            resValue.setErrorStr(commandParams, ResValueType::ErrorType::VALUE_NOT_INTEGER);
+        if (!checkValueIsLongLong(commandParams, resValue, &integer))
             return;
-        }
 
         handlerIncrCommon(commandParams, resValue, -integer);
     }
@@ -191,7 +212,7 @@ private:
         auto it = keyValues.find(commandParams.key);
         if (it == keyValues.end())
         {
-            StringValueType value;
+            ValueType value;
             value.value = doubleValue;
             keyValues.emplace(commandParams.key, value);
 
@@ -228,7 +249,8 @@ private:
     static bool handlerExtraParams (
         const CommandParams &commandParams,
         StringValueType &value,
-        ResValueType &resValue
+        ResValueType &resValue,
+        EventAddObserverParams &eventAddObserverParams
     )
     {
         // 有额外选项 nx|xx get ex|px
@@ -270,16 +292,12 @@ private:
                     if (value.timeModel != StringValueType::TimeModel::EX)
                     {
                         it++;
-                        if (!Utils::StringHelper::stringIsLongLong(*it, &integer))
-                        {
-                            resValue.setErrorStr(
-                                commandParams,
-                                ResValueType::ErrorType::VALUE_NOT_INTEGER
-                            );
+                        if (!checkValueIsLongLong(commandParams, *it, resValue, &integer))
                             return false;
-                        }
+                        if (!checkExpireIsValid(commandParams, integer, resValue))
+                            return false;
                         value.timeModel = StringValueType::TimeModel::PX;
-                        value.expireTime = std::chrono::milliseconds { integer };
+                        eventAddObserverParams.expire = std::chrono::milliseconds { integer };
                     }
                     else
                     {
@@ -292,16 +310,13 @@ private:
                     if (value.timeModel != StringValueType::TimeModel::PX)
                     {
                         it++;
-                        if (!Utils::StringHelper::stringIsLongLong(*it, &integer))
-                        {
-                            resValue.setErrorStr(
-                                commandParams,
-                                ResValueType::ErrorType::VALUE_NOT_INTEGER
-                            );
+                        if (!checkValueIsLongLong(commandParams, *it, resValue, &integer))
                             return false;
-                        }
+                        if (!checkExpireIsValid(commandParams, integer, resValue))
+                            return false;
                         value.timeModel = StringValueType::TimeModel::EX;
-                        value.expireTime = std::chrono::milliseconds { integer * 1000 };
+                        eventAddObserverParams.expire =
+                            std::chrono::milliseconds { integer * 1000 };
                     }
                     else
                     {
@@ -329,7 +344,7 @@ private:
         auto it = keyValues.find(commandParams.key);
         if (it == keyValues.end())
         {
-            StringValueType value;
+            ValueType value;
             value.value = step;
             keyValues.emplace(commandParams.key, value);
 
@@ -358,7 +373,7 @@ private:
         }
     }
 
-    std::unordered_map <KeyType, StringValueType> keyValues {};
+    std::unordered_map <KeyType, ValueType> keyValues {};
     static const char *commands[];
 };
 

@@ -7,6 +7,7 @@
 #include <string>
 #include <chrono>
 #include <sstream>
+#include "util/events-observer.h"
 
 #define EXTRA_PARAMS_NX "nx"
 #define EXTRA_PARAMS_XX "xx"
@@ -21,6 +22,10 @@
 using KeyType = std::string;
 using IntegerType = long long;
 using FloatType = double;
+enum class StructType { NIL = -1, STRING, LIST, HASH, SET, ZSET, END };
+enum EventType { ADD_KEY, RESET_EXPIRE };
+using EventsObserverType = EventsObserver <int>;
+
 typedef struct
 {
     std::string command;
@@ -30,7 +35,6 @@ typedef struct
 struct ValueType
 {
     std::string value;
-    std::chrono::milliseconds expireTime { -1 };
 };
 struct StringValueType : public ValueType
 {
@@ -85,7 +89,9 @@ struct ResValueType : public ValueType
         // ex : set 同时设置NX XX 时会报错
         SYNTAX_ERROR,
         // incr或decr 后溢出报错
-        INCR_OR_DECR_OVERFLOW
+        INCR_OR_DECR_OVERFLOW,
+        // 时间为 复数或0时报错
+        INVALID_EXPIRE_TIME
     };
 
     ResValueType () = default;
@@ -102,8 +108,11 @@ struct ResValueType : public ValueType
         if (this == &rhs)
             return *this;
 
-        expireTime = rhs.expireTime;
         value = rhs.value;
+        if (Utils::StringHelper::stringIsLongLong(value))
+            model = ReplyModel::REPLY_INTEGER;
+        else
+            model = ReplyModel::REPLY_STRING;
 
         return *this;
     }
@@ -112,8 +121,11 @@ struct ResValueType : public ValueType
         if (this == &rhs)
             return *this;
 
-        expireTime = rhs.expireTime;
         value = std::move(rhs.value);
+        if (Utils::StringHelper::stringIsLongLong(value))
+            model = ReplyModel::REPLY_INTEGER;
+        else
+            model = ReplyModel::REPLY_STRING;
 
         return *this;
     }
@@ -163,6 +175,14 @@ struct ResValueType : public ValueType
             case ErrorType::INCR_OR_DECR_OVERFLOW:
                 value = ERROR_MESSAGE_HELPER("ERR increment or decrement would overflow");
                 break;
+            case ErrorType::INVALID_EXPIRE_TIME:
+                sprintf(
+                    msg,
+                    ERROR_MESSAGE_HELPER("ERR invalid expire time in '%s' command%c"),
+                    commandParams.command.c_str(), '\0'
+                );
+                value = msg;
+                break;
         }
     }
 
@@ -177,7 +197,23 @@ struct ResValueType : public ValueType
         value = MESSAGE_OK;
     }
 
+    inline void setIntegerValue (const IntegerType num)
+    {
+        model = ReplyModel::REPLY_INTEGER;
+        value = std::to_string(num);
+    }
+
     ReplyModel model = ReplyModel::REPLY_UNKNOWN;
     std::vector <ResValueType> elements {};
+};
+
+struct EventObserverParams
+{
+    std::string key;
+    StructType structType;
+};
+struct EventAddObserverParams : public EventObserverParams
+{
+    std::chrono::milliseconds expire { 0 };
 };
 #endif //LINUX_SERVER_LIB_KV_STORE_KV_VALUE_H_
