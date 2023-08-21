@@ -20,15 +20,17 @@ public:
         DECR,
         DECRBY,
         APPEND,
-        GETSET,
+        MSET,
         END
     };
     FIND_COMMAND
 
+    explicit StringCommandHandler (EventsObserver <int> &eventsObserver)
+        : eventObserver(eventsObserver) {}
+
     inline ResValueType handlerCommand (
         const CommandParams &commandParams,
-        Commands cmd,
-        EventsObserverType &eventObserver
+        Commands cmd
     )
     {
         ResValueType resValue;
@@ -40,7 +42,7 @@ public:
         switch (cmd)
         {
             case Commands::SET:
-                handlerSet(commandParams, resValue, eventObserver);
+                handlerSet(commandParams, resValue);
                 break;
             case Commands::GET:
                 handlerGet(commandParams, resValue);
@@ -60,8 +62,8 @@ public:
             case Commands::APPEND:
                 handlerAppend(commandParams, resValue);
                 break;
-            case Commands::GETSET:
-                handlerGetset(commandParams, resValue);
+            case Commands::MSET:
+                handlerMSet(commandParams, resValue);
                 break;
             case INCRBYFLOAT:
                 handlerIncrByFloat(commandParams, resValue);
@@ -82,8 +84,7 @@ public:
 private:
     void handlerSet (
         const CommandParams &commandParams,
-        ResValueType &resValue,
-        EventsObserverType &eventObserver
+        ResValueType &resValue
     )
     {
         // 检查参数长度 是否缺少参数
@@ -91,15 +92,8 @@ private:
         if (!success)
             return;
 
-        StringValueType value;
-
-        // 初始化emit参数
-        static EventAddObserverParams eventAddObserverParams;
-        eventAddObserverParams.structType = StructType::STRING;
-        eventAddObserverParams.key = commandParams.key;
-
         // 检查拓展参数 NX|XX EX|PX GET
-        success = handlerExtraParams(commandParams, value, resValue, eventAddObserverParams);
+        success = handlerExtraParams(commandParams, resValue);
         if (!success)
             return;
 
@@ -117,9 +111,7 @@ private:
             if (value.isReturnOldValue)
                 resValue.setNilFlag();
 
-            keyValues.emplace(commandParams.key, value);
-
-            eventObserver.emit(static_cast<int>(EventType::ADD_KEY), &eventAddObserverParams);
+            setNewKeyValue(commandParams.key);
             return;
         }
 
@@ -193,8 +185,50 @@ private:
 
         handlerIncrCommon(commandParams, resValue, -integer);
     }
-    void handlerAppend (const CommandParams &commandParams, ResValueType &resValue) {}
-    void handlerGetset (const CommandParams &commandParams, ResValueType &resValue) {}
+    void handlerAppend (const CommandParams &commandParams, ResValueType &resValue)
+    {
+        if (!checkKeyIsValid(commandParams, resValue))
+            return;
+        if (!checkHasParams(commandParams, resValue, 1))
+            return;
+
+        auto it = keyValues.find(commandParams.key);
+        if (it == keyValues.end())
+        {
+            value.value = commandParams.params[0];
+            setNewKeyValue(commandParams.key);
+
+            resValue.setIntegerValue(value.value.size());
+        }
+        else
+        {
+            it->second.value += commandParams.params[0];
+            resValue.setIntegerValue(it->second.value.size());
+        }
+    }
+    void handlerMSet (const CommandParams &commandParams, ResValueType &resValue)
+    {
+        // 因为第一个key被截出来了，所以commandParams.params.size()必须是奇数才是正确的
+        if ((commandParams.params.size() & 1) == 0)
+        {
+            resValue.setErrorStr(commandParams, ResValueType::ErrorType::WRONG_NUMBER);
+            return;
+        }
+        CommandParams loopParams;
+        loopParams.command = commands[static_cast<int>(Commands::SET)];
+        loopParams.key = commandParams.key;
+        for (int i = 0;;)
+        {
+            // 设置value
+            loopParams.params.emplace_back(commandParams.params[i++]);
+            handlerSet(loopParams, resValue);
+
+            if (i == commandParams.params.size())
+                break;
+            // 设置key
+            loopParams.key = commandParams.params[i++];
+        }
+    }
 
     void handlerIncrByFloat (const CommandParams &commandParams, ResValueType &resValue)
     {
@@ -212,9 +246,8 @@ private:
         auto it = keyValues.find(commandParams.key);
         if (it == keyValues.end())
         {
-            ValueType value;
             value.value = doubleValue;
-            keyValues.emplace(commandParams.key, value);
+            setNewKeyValue(commandParams.key);
 
             resValue = value;
             resValue.model = ResValueType::ReplyModel::REPLY_STRING;
@@ -246,11 +279,19 @@ private:
     }
 
 private:
+    // 设置key ，如果有过期时间需要提前设置
+    void setNewKeyValue (const std::string &key)
+    {
+        eventAddObserverParams.structType = StructType::STRING;
+        eventAddObserverParams.key = key;
+
+        keyValues.emplace(key, value);
+        eventObserver.emit(static_cast<int>(EventType::ADD_KEY), &eventAddObserverParams);
+    }
+
     static bool handlerExtraParams (
         const CommandParams &commandParams,
-        StringValueType &value,
-        ResValueType &resValue,
-        EventAddObserverParams &eventAddObserverParams
+        ResValueType &resValue
     )
     {
         // 有额外选项 nx|xx get ex|px
@@ -344,9 +385,8 @@ private:
         auto it = keyValues.find(commandParams.key);
         if (it == keyValues.end())
         {
-            ValueType value;
             value.value = step;
-            keyValues.emplace(commandParams.key, value);
+            setNewKeyValue(commandParams.key);
 
             resValue = value;
             resValue.model = ResValueType::ReplyModel::REPLY_INTEGER;
@@ -374,9 +414,14 @@ private:
     }
 
     std::unordered_map <KeyType, ValueType> keyValues {};
+    EventsObserverType &eventObserver;
     static const char *commands[];
+    static EventAddObserverParams eventAddObserverParams;
+    static StringValueType value;
 };
 
 const char *StringCommandHandler::commands[]
-    { "set", "get", "incr", "incrby", "decr", "decrby", "append", "getset" };
+    { "set", "get", "incr", "incrby", "decr", "decrby", "append", "mset" };
+EventAddObserverParams StringCommandHandler::eventAddObserverParams;
+StringValueType StringCommandHandler::value;
 #endif //LINUX_SERVER_LIB_KV_STORE_COMMAND_STRUCTS_KV_STRING_COMMAND_H_

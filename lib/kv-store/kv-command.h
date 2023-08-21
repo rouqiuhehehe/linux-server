@@ -237,7 +237,7 @@ protected:
         if (it == expireKey.end())
             resValue.setIntegerValue(nilExpire);
         else
-            resValue.setIntegerValue((it->second.second -getNow()).count() / 1000);
+            resValue.setIntegerValue((it->second.second - getNow()).count() / 1000);
     }
     // 毫秒
     void handlerPTTL (const CommandParams &commandParams, ResValueType &resValue) override
@@ -249,7 +249,7 @@ protected:
         if (it == expireKey.end())
             resValue.setIntegerValue(nilExpire);
         else
-            resValue.setIntegerValue((it->second.second -getNow()).count());
+            resValue.setIntegerValue((it->second.second - getNow()).count());
     }
 
     void handlerKeys (const CommandParams &commandParams, ResValueType &resValue) override
@@ -426,14 +426,13 @@ private:
         res = std::move(
             stringCommandHandler.handlerCommand(
                 commandParams,
-                stringCommand,
-                eventsObserver
+                stringCommand
             ));
     }
 
 private:
-    StringCommandHandler stringCommandHandler;
     EventsObserver <int> eventsObserver;
+    StringCommandHandler stringCommandHandler { eventsObserver };
 
     static constexpr int onceCheckExpireKeyMaxNum = 20;
     static constexpr int nilExpire = -2;

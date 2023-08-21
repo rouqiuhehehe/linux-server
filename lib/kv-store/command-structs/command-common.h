@@ -31,7 +31,7 @@ protected:
      * @param paramsNum 检查参数的个数，0为不需要参数，-1 为不检查参数个数，可以有任意长度参数
      * @return
      */
-    static bool checkHasParams (
+    static inline bool checkHasParams (
         const CommandParams &commandParams,
         ResValueType &resValue,
         int paramsNum
@@ -49,7 +49,8 @@ protected:
         return true;
     }
 
-    static bool checkKeyIsValid (const CommandParams &commandParams, ResValueType &resValue)
+    // 检查是否存在key
+    static inline bool checkKeyIsValid (const CommandParams &commandParams, ResValueType &resValue)
     {
         if (commandParams.key.empty())
         {
@@ -60,7 +61,8 @@ protected:
         return true;
     }
 
-    static bool checkValueIsLongLong (
+    // 检查value[0]是否是数字
+    static inline bool checkValueIsLongLong (
         const CommandParams &commandParams,
         ResValueType &resValue,
         IntegerType *integer = nullptr
@@ -75,7 +77,7 @@ protected:
         return true;
     }
 
-    static bool checkValueIsLongLong (
+    static inline bool checkValueIsLongLong (
         const CommandParams &commandParams,
         const std::string &checkValue,
         ResValueType &resValue,
@@ -91,7 +93,8 @@ protected:
         return true;
     }
 
-    static bool checkExpireIsValid (
+    // 检查过期时间是否是正整数
+    static inline bool checkExpireIsValid (
         const CommandParams &commandParams,
         const IntegerType expire,
         ResValueType &resValue
