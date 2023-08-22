@@ -217,16 +217,18 @@ private:
         CommandParams loopParams;
         loopParams.command = commands[static_cast<int>(Commands::SET)];
         loopParams.key = commandParams.key;
-        for (int i = 0;;)
+        int i = 0;
+        // 设置value
+        loopParams.params.emplace_back(commandParams.params[i++]);
+        for (;;)
         {
-            // 设置value
-            loopParams.params.emplace_back(commandParams.params[i++]);
             handlerSet(loopParams, resValue);
 
             if (i == commandParams.params.size())
                 break;
             // 设置key
             loopParams.key = commandParams.params[i++];
+            loopParams.params[0] = commandParams.params[i++];
         }
     }
 
@@ -421,7 +423,7 @@ private:
 };
 
 const char *StringCommandHandler::commands[]
-    { "set", "get", "incr", "incrby", "decr", "decrby", "append", "mset" };
+    { "set", "get", "incr", "incrby", "incrbyfloat", "decr", "decrby", "append", "mset" };
 EventAddObserverParams StringCommandHandler::eventAddObserverParams;
 StringValueType StringCommandHandler::value;
 #endif //LINUX_SERVER_LIB_KV_STORE_COMMAND_STRUCTS_KV_STRING_COMMAND_H_

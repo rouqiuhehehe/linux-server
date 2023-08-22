@@ -135,6 +135,10 @@ struct ResValueType : public ValueType
         static char msg[128];
         static std::stringstream paramsStream;
         model = ReplyModel::REPLY_ERROR;
+
+#ifndef NDEBUG
+        Utils::dumpTrackBack();
+#endif
         switch (type)
         {
             case ErrorType::WRONGTYPE:

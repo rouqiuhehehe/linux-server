@@ -18,9 +18,25 @@
 #include <cstring>
 #include <iostream>
 #include <arpa/inet.h>
+#include <execinfo.h>
+#include "printf-color.h"
 
 namespace Utils
 {
+    // 打印堆栈，需要编译参数-rdynamic
+    inline void dumpTrackBack ()
+    {
+        constexpr static int SIZE = 200;
+        static void *nBuffer[SIZE];
+
+        int nPtr = backtrace(nBuffer, SIZE);
+        if (nPtr)
+        {
+            char **strings = backtrace_symbols(nBuffer, nPtr);
+            for (int i = 0; i < nPtr; ++i)
+                PRINT_ERROR("%s", strings[i]);
+        }
+    }
     inline std::string getIpAndHost (const struct sockaddr_in &sockaddrIn)
     {
         char *ip = inet_ntoa(sockaddrIn.sin_addr);

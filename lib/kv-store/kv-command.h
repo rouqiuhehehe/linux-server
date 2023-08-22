@@ -185,15 +185,23 @@ public:
 
     void checkExpireKeys ()
     {
+        if (expireKey.empty())
+            return;
+
         auto it = expireKey.begin();
+        auto end = expireKey.end();
+        ExpireMapType::iterator resIt;
         int i = 0;
         auto now = getNow();
 
         while (i++ < onceCheckExpireKeyMaxNum && (getNow() - now) < onceCheckExpireKeyMaxTime
-            && it != expireKey.end())
+            && it != end)
         {
-            checkExpireKey(it->first);
-            it++;
+            resIt = checkExpireKey(it);
+            if (resIt != end)
+                it = resIt;
+            else
+                ++it;
         }
     }
 protected:
@@ -314,10 +322,7 @@ private:
         auto eventAddObserverParams = static_cast<EventAddObserverParams *>(arg);
         keyOfStructType.emplace(eventAddObserverParams->key, eventAddObserverParams->structType);
 
-        setExpire(
-            eventAddObserverParams->key,
-            eventAddObserverParams->structType,
-            eventAddObserverParams->expire + getNow());
+        resetExpire(arg);
     }
 
     void resetExpire (void *arg)
@@ -327,7 +332,8 @@ private:
         setExpire(
             eventAddObserverParams->key,
             eventAddObserverParams->structType,
-            eventAddObserverParams->expire + getNow());
+            eventAddObserverParams->expire
+        );
     }
 
     void setExpire (
@@ -338,31 +344,35 @@ private:
     {
         if (expire > std::chrono::milliseconds(0))
         {
-            auto it = expireKey.emplace(key, std::make_pair(structType, expire));
+            auto it = expireKey.emplace(key, std::make_pair(structType, expire + getNow()));
             if (!it.second)
-                it.first->second.second = expire;
+                it.first->second.second = expire + getNow();
         }
     }
 
     size_t delKeyEvent (const std::string &key)
     {
-        ExpireMapType::const_iterator it = expireKey.find(key);
-        return delKeyEvent(key, it);
+        auto it = expireKey.find(key);
+        if (delKeyEvent(it) == expireKey.end())
+            return 0;
+
+        return 1;
     }
 
-    size_t delKeyEvent (const std::string &key, ExpireMapType::const_iterator &it)
+    ExpireMapType::iterator delKeyEvent (ExpireMapType::iterator &it)
     {
-        size_t num = keyOfStructType.erase(key);
+        size_t num = keyOfStructType.erase(it->first);
+        ExpireMapType::iterator resIt;
         // 如果num为0则key不存在
         if (num)
         {
             const StructType structType = it->second.first;
-            expireKey.erase(it);
+            resIt = expireKey.erase(it);
 
             switch (structType)
             {
                 case StructType::STRING:
-                    stringCommandHandler.delKey(key);
+                    stringCommandHandler.delKey(it->first);
                     break;
                 case StructType::LIST:
                     break;
@@ -379,21 +389,27 @@ private:
             }
         }
 
-        return num;
+        return resIt;
     }
 
     StructType checkExpireKey (const std::string &key)
     {
-        ExpireMapType::const_iterator it = expireKey.find(key);
+        auto it = expireKey.find(key);
+        if (checkExpireKey(it) != expireKey.end())
+            return it->second.first;
+
+        return StructType::NIL;
+    }
+
+    ExpireMapType::iterator checkExpireKey (ExpireMapType::iterator &it)
+    {
         if (it != expireKey.end())
         {
             if (getNow() > it->second.second)
-                delKeyEvent(key, it);
-
-            return it->second.first;
+                return delKeyEvent(it);
         }
 
-        return StructType::NIL;
+        return expireKey.end();
     }
 
     static inline std::chrono::milliseconds getNow () noexcept
@@ -412,6 +428,8 @@ private:
             commandHandlerResByString(commandParams, res, stringCommand);
             return true;
         }
+
+        return false;
     }
 
     inline void commandHandlerResByString (
@@ -431,7 +449,7 @@ private:
     }
 
 private:
-    EventsObserver <int> eventsObserver;
+    static EventsObserver <int> eventsObserver;
     StringCommandHandler stringCommandHandler { eventsObserver };
 
     static constexpr int onceCheckExpireKeyMaxNum = 20;
@@ -443,5 +461,6 @@ const char
     *BaseCommandHandler::commands[]
     { "flushall", "del", "expire", "pexpire", "ttl", "pttl", "keys", "flushdb", "exists", "type" };
 constexpr std::chrono::milliseconds CommandHandler::onceCheckExpireKeyMaxTime;
+EventsObserver <int> CommandHandler::eventsObserver;
 
 #endif //LINUX_SERVER_LIB_KV_STORE_KV_COMMAND_H_
