@@ -11,12 +11,14 @@
 #include "unordered_map"
 #include "command-structs/command-common.h"
 #include "command-structs/kv-string-command.h"
+#include "command-structs/kv-hash-command.h"
 
 class BaseCommandHandler
 {
 protected:
-    using ExpireMapType = std::unordered_map <std::string,
+    using ExpireMapType = std::unordered_map <KeyType,
                                               std::pair <StructType, std::chrono::milliseconds>>;
+    using AllKeyMapType = std::unordered_map <KeyType, StructType>;
     enum class Commands
     {
         NIL = -1,
@@ -108,7 +110,7 @@ protected:
     FIND_COMMAND
 
 protected:
-    std::unordered_map <std::string, StructType> keyOfStructType;
+    AllKeyMapType keyOfStructType;
     ExpireMapType expireKey;
     static const char *commands[];
 };
@@ -207,6 +209,11 @@ public:
 protected:
     void handlerFlushAll (const CommandParams &commandParams, ResValueType &resValue) override
     {
+        if (!commandParams.key.empty() || !commandParams.params.empty())
+        {
+            resValue.setErrorStr(commandParams, ResValueType::ErrorType::SYNTAX_ERROR);
+            return;
+        }
         clear();
         resValue.setOKFlag();
     }
@@ -262,19 +269,72 @@ protected:
 
     void handlerKeys (const CommandParams &commandParams, ResValueType &resValue) override
     {
+        // 目前只做keys *
+        if (!checkKeyIsValid(commandParams, resValue))
+            return;
 
+        if (commandParams.key == "*")
+            for (auto &v : keyOfStructType)
+                resValue.setVectorValue(v.first);
     }
     void handlerFlushDb (const CommandParams &commandParams, ResValueType &resValue) override
     {
-
+        // 目前不做多库
+        handlerFlushAll(commandParams, resValue);
     }
     void handlerExists (const CommandParams &commandParams, ResValueType &resValue) override
     {
+        if (!checkKeyIsValid(commandParams, resValue))
+            return;
 
+        KeyType key = commandParams.key;
+        int i = 0, count = 0;
+        AllKeyMapType::iterator it;
+        auto end = keyOfStructType.end();
+        do
+        {
+            it = keyOfStructType.find(key);
+            if (it != end)
+                count++;
+
+            key = commandParams.params[i];
+        } while (++i != commandParams.params.size());
+
+        resValue.setIntegerValue(count);
     }
     void handlerType (const CommandParams &commandParams, ResValueType &resValue) override
     {
+        if (!checkKeyIsValid(commandParams, resValue)
+            || !checkHasParams(commandParams, resValue, 0))
+            return;
 
+        auto it = keyOfStructType.find(commandParams.key);
+        if (it != keyOfStructType.end())
+        {
+            switch (it->second)
+            {
+                case StructType::STRING:
+                    resValue.setStringValue("string");
+                    return;
+                case StructType::LIST:
+                    resValue.setStringValue("list");
+                    return;
+                case StructType::HASH:
+                    resValue.setStringValue("hash");
+                    return;
+                case StructType::SET:
+                    resValue.setStringValue("set");
+                    return;
+                case StructType::ZSET:
+                    resValue.setStringValue("zset");
+                    return;
+                case StructType::END:
+                case StructType::NIL:
+                    break;
+            }
+        }
+
+        resValue.setStringValue("none");
     }
 private:
     inline void clear () noexcept override
@@ -309,10 +369,10 @@ private:
 
     void registerEvents ()
     {
-        eventsObserver.on(
+        eventObserver.on(
             static_cast<int>(EventType::ADD_KEY),
             std::bind(&CommandHandler::addKeyEvent, this, std::placeholders::_1));
-        eventsObserver.on(
+        eventObserver.on(
             static_cast<int>(EventType::RESET_EXPIRE),
             std::bind(&CommandHandler::resetExpire, this, std::placeholders::_1));
     }
@@ -449,8 +509,7 @@ private:
     }
 
 private:
-    static EventsObserver <int> eventsObserver;
-    StringCommandHandler stringCommandHandler { eventsObserver };
+    StringCommandHandler stringCommandHandler;
 
     static constexpr int onceCheckExpireKeyMaxNum = 20;
     static constexpr int nilExpire = -2;
@@ -461,6 +520,5 @@ const char
     *BaseCommandHandler::commands[]
     { "flushall", "del", "expire", "pexpire", "ttl", "pttl", "keys", "flushdb", "exists", "type" };
 constexpr std::chrono::milliseconds CommandHandler::onceCheckExpireKeyMaxTime;
-EventsObserver <int> CommandHandler::eventsObserver;
 
 #endif //LINUX_SERVER_LIB_KV_STORE_KV_COMMAND_H_

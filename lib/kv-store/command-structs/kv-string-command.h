@@ -25,9 +25,6 @@ public:
     };
     FIND_COMMAND
 
-    explicit StringCommandHandler (EventsObserver <int> &eventsObserver)
-        : eventObserver(eventsObserver) {}
-
     inline ResValueType handlerCommand (
         const CommandParams &commandParams,
         Commands cmd
@@ -126,7 +123,7 @@ private:
         if (eventAddObserverParams.expire != std::chrono::milliseconds(0))
             eventObserver.emit(static_cast<int>(EventType::RESET_EXPIRE), &eventAddObserverParams);
 
-        it->second = value;
+        it->second = value.value;
     }
 
     void handlerGet (const CommandParams &commandParams, ResValueType &resValue)
@@ -202,8 +199,8 @@ private:
         }
         else
         {
-            it->second.value += commandParams.params[0];
-            resValue.setIntegerValue(it->second.value.size());
+            it->second += commandParams.params[0];
+            resValue.setIntegerValue(it->second.size());
         }
     }
     void handlerMSet (const CommandParams &commandParams, ResValueType &resValue)
@@ -251,13 +248,13 @@ private:
             value.value = doubleValue;
             setNewKeyValue(commandParams.key);
 
-            resValue = value;
+            resValue = value.value;
             resValue.model = ResValueType::ReplyModel::REPLY_STRING;
         }
         else
         {
             FloatType oldValue;
-            if (!Utils::StringHelper::stringIsDouble(it->second.value, &oldValue))
+            if (!Utils::StringHelper::stringIsDouble(it->second, &oldValue))
                 resValue.setErrorStr(commandParams, ResValueType::ErrorType::VALUE_NOT_FLOAT);
             else
             {
@@ -273,7 +270,7 @@ private:
                     return;
                 }
 
-                it->second.value = std::to_string(doubleValue + oldValue);
+                it->second = std::to_string(doubleValue + oldValue);
                 resValue = it->second;
                 resValue.model = ResValueType::ReplyModel::REPLY_STRING;
             }
@@ -287,7 +284,7 @@ private:
         eventAddObserverParams.structType = StructType::STRING;
         eventAddObserverParams.key = key;
 
-        keyValues.emplace(key, value);
+        keyValues.emplace(key, value.value);
         eventObserver.emit(static_cast<int>(EventType::ADD_KEY), &eventAddObserverParams);
     }
 
@@ -390,13 +387,13 @@ private:
             value.value = step;
             setNewKeyValue(commandParams.key);
 
-            resValue = value;
+            resValue = value.value;
             resValue.model = ResValueType::ReplyModel::REPLY_INTEGER;
         }
         else
         {
             IntegerType integer;
-            if (!Utils::StringHelper::stringIsLongLong(it->second.value, &integer))
+            if (!Utils::StringHelper::stringIsLongLong(it->second, &integer))
                 resValue.setErrorStr(commandParams, ResValueType::ErrorType::VALUE_NOT_INTEGER);
             else
             {
@@ -408,7 +405,7 @@ private:
                     );
                     return;
                 }
-                it->second.value = std::to_string(step + integer);
+                it->second = std::to_string(step + integer);
                 resValue = it->second;
                 resValue.model = ResValueType::ReplyModel::REPLY_INTEGER;
             }
@@ -416,14 +413,12 @@ private:
     }
 
     std::unordered_map <KeyType, ValueType> keyValues {};
-    EventsObserverType &eventObserver;
     static const char *commands[];
-    static EventAddObserverParams eventAddObserverParams;
+
     static StringValueType value;
 };
 
 const char *StringCommandHandler::commands[]
     { "set", "get", "incr", "incrby", "incrbyfloat", "decr", "decrby", "append", "mset" };
-EventAddObserverParams StringCommandHandler::eventAddObserverParams;
 StringValueType StringCommandHandler::value;
 #endif //LINUX_SERVER_LIB_KV_STORE_COMMAND_STRUCTS_KV_STRING_COMMAND_H_

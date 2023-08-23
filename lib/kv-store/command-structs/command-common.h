@@ -108,5 +108,11 @@ protected:
 
         return true;
     }
+
+    static EventAddObserverParams eventAddObserverParams;
+    static EventsObserverType eventObserver;
 };
+
+EventAddObserverParams CommandCommon::eventAddObserverParams;
+EventsObserverType CommandCommon::eventObserver;
 #endif //LINUX_SERVER_LIB_KV_STORE_COMMAND_STRUCTS_COMMAND_COMMON_H_

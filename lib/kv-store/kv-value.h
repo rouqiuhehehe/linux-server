@@ -32,11 +32,8 @@ typedef struct
     std::string key;
     std::vector <std::string> params;
 } CommandParams;
-struct ValueType
-{
-    std::string value;
-};
-struct StringValueType : public ValueType
+using ValueType = std::string;
+struct StringValueType
 {
     enum class SetModel
     {
@@ -52,6 +49,7 @@ struct StringValueType : public ValueType
         // milliseconds
         PX
     };
+    ValueType value;
     //NX ：只在键不存在时，才对键进行设置操作。 SET key value NX 效果等同于 SETNX key value 。
     // XX ：只在键已经存在时，才对键进行设置操作。
     SetModel setModel = SetModel::DEFAULT;
@@ -61,7 +59,7 @@ struct StringValueType : public ValueType
     bool isReturnOldValue = false;
 };
 
-struct ResValueType : public ValueType
+struct ResValueType
 {
     enum class ReplyModel
     {
@@ -105,10 +103,7 @@ struct ResValueType : public ValueType
     }
     ResValueType &operator= (const ValueType &rhs) noexcept
     {
-        if (this == &rhs)
-            return *this;
-
-        value = rhs.value;
+        value = rhs;
         if (Utils::StringHelper::stringIsLongLong(value))
             model = ReplyModel::REPLY_INTEGER;
         else
@@ -118,10 +113,7 @@ struct ResValueType : public ValueType
     }
     ResValueType &operator= (ValueType &&rhs) noexcept
     {
-        if (this == &rhs)
-            return *this;
-
-        value = std::move(rhs.value);
+        value = std::move(rhs);
         if (Utils::StringHelper::stringIsLongLong(value))
             model = ReplyModel::REPLY_INTEGER;
         else
@@ -207,6 +199,71 @@ struct ResValueType : public ValueType
         value = std::to_string(num);
     }
 
+    inline void setStringValue (const ValueType &v)
+    {
+        model = ReplyModel::REPLY_STRING;
+        value = v;
+    }
+
+    inline void setStringValue (ValueType &&v)
+    {
+        model = ReplyModel::REPLY_STRING;
+        value = std::move(v);
+    }
+
+    template <class ...Arg>
+    inline void setVectorValue (const ResValueType &res, Arg &&...arg)
+    {
+        elements.emplace_back(res);
+        setVectorValue(std::forward <Arg>(arg)...);
+    }
+
+    template <class ...Arg>
+    inline void setVectorValue (ResValueType &&res, Arg &&...arg)
+    {
+        elements.emplace_back(std::move(res));
+        setVectorValue(std::forward <Arg>(arg)...);
+    }
+
+    template <class ...Arg>
+    inline void setVectorValue (const ValueType &res, Arg &&...arg)
+    {
+        elements.emplace_back(res);
+        setVectorValue(std::forward <Arg>(arg)...);
+    }
+
+    template <class ...Arg>
+    inline void setVectorValue (ValueType &&res, Arg &&...arg)
+    {
+        elements.emplace_back(std::move(res));
+        setVectorValue(std::forward <Arg>(arg)...);
+    }
+
+    inline void setVectorValue (const ResValueType &res)
+    {
+        elements.emplace_back(res);
+        model = ReplyModel::REPLY_ARRAY;
+    }
+
+    inline void setVectorValue (ResValueType &&res)
+    {
+        elements.emplace_back(std::move(res));
+        model = ReplyModel::REPLY_ARRAY;
+    }
+
+    inline void setVectorValue (const ValueType &res)
+    {
+        elements.emplace_back(res);
+        model = ReplyModel::REPLY_ARRAY;
+    }
+
+    inline void setVectorValue (ValueType &&res)
+    {
+        elements.emplace_back(std::move(res));
+        model = ReplyModel::REPLY_ARRAY;
+    }
+
+    ValueType value;
     ReplyModel model = ReplyModel::REPLY_UNKNOWN;
     std::vector <ResValueType> elements {};
 };
