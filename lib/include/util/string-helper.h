@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <numeric>
 #include <cerrno>
+#include <sstream>
 
 namespace Utils
 {
@@ -91,14 +92,24 @@ namespace Utils
             if (value)
                 *value = res;
 
-            bool minmax = str[0] == '-'
-                          ? -std::numeric_limits <double>::infinity()
-                          : std::numeric_limits <double>::infinity();
+            double minmax = str[0] == '-'
+                            ? -std::numeric_limits <double>::infinity()
+                            : std::numeric_limits <double>::infinity();
             bool success =
                 (endPtr == (str.rbegin().operator->() + 1)) && errno != ERANGE && res != minmax;
 
             errno = 0;
             return success;
+        }
+
+        template <class T>
+        inline std::string toString (T val)
+        {
+            static std::ostringstream stream;
+            stream.str("");
+            stream << val;
+
+            return stream.str();
         }
     }
 }

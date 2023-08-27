@@ -73,7 +73,10 @@ public:
         return resValue;
     }
 
-    inline void clear () noexcept override {}
+    inline void clear () noexcept override
+    {
+        keyValues.clear();
+    }
     inline size_t delKey (const std::string &key) noexcept override
     {
         return keyValues.erase(key);
@@ -118,10 +121,10 @@ private:
             return;
         }
         if (value.isReturnOldValue)
-            resValue = std::move(it->second);
+            resValue.setStringValue(it->second);
 
         if (eventAddObserverParams.expire != std::chrono::milliseconds(0))
-            eventObserver.emit(static_cast<int>(EventType::RESET_EXPIRE), &eventAddObserverParams);
+            EVENT_OBSERVER_EMIT(EventType::RESET_EXPIRE);
 
         it->second = value.value;
     }
@@ -136,7 +139,7 @@ private:
         if (it == keyValues.end())
             resValue.setNilFlag();
         else
-            resValue = it->second;
+            resValue.setStringValue(it->second);
     }
 
     void handlerIncr (const CommandParams &commandParams, ResValueType &resValue)
@@ -212,7 +215,7 @@ private:
             return;
         }
         CommandParams loopParams;
-        loopParams.command = commands[static_cast<int>(Commands::SET)];
+        loopParams.command = commands[ENUM_TO_INT(Commands::SET)];
         loopParams.key = commandParams.key;
         int i = 0;
         // 设置value
@@ -248,8 +251,7 @@ private:
             value.value = doubleValue;
             setNewKeyValue(commandParams.key);
 
-            resValue = value.value;
-            resValue.model = ResValueType::ReplyModel::REPLY_STRING;
+            resValue.setStringValue(value.value);
         }
         else
         {
@@ -270,9 +272,8 @@ private:
                     return;
                 }
 
-                it->second = std::to_string(doubleValue + oldValue);
-                resValue = it->second;
-                resValue.model = ResValueType::ReplyModel::REPLY_STRING;
+                it->second = std::move(Utils::StringHelper::toString(oldValue + doubleValue));
+                resValue.setStringValue(it->second);
             }
         }
     }
@@ -281,11 +282,9 @@ private:
     // 设置key ，如果有过期时间需要提前设置
     void setNewKeyValue (const std::string &key)
     {
-        eventAddObserverParams.structType = StructType::STRING;
-        eventAddObserverParams.key = key;
+        CommandCommon::setNewKeyValue(key, StructType::STRING);
 
         keyValues.emplace(key, value.value);
-        eventObserver.emit(static_cast<int>(EventType::ADD_KEY), &eventAddObserverParams);
     }
 
     static bool handlerExtraParams (
@@ -387,8 +386,7 @@ private:
             value.value = step;
             setNewKeyValue(commandParams.key);
 
-            resValue = value.value;
-            resValue.model = ResValueType::ReplyModel::REPLY_INTEGER;
+            resValue.setIntegerValue(step);
         }
         else
         {
@@ -406,19 +404,17 @@ private:
                     return;
                 }
                 it->second = std::to_string(step + integer);
-                resValue = it->second;
-                resValue.model = ResValueType::ReplyModel::REPLY_INTEGER;
+                resValue.setIntegerValue(step + integer);
             }
         }
     }
 
     std::unordered_map <KeyType, ValueType> keyValues {};
-    static const char *commands[];
+    static constexpr const char *commands[]
+        { "set", "get", "incr", "incrby", "incrbyfloat", "decr", "decrby", "append", "mset" };
 
     static StringValueType value;
 };
-
-const char *StringCommandHandler::commands[]
-    { "set", "get", "incr", "incrby", "incrbyfloat", "decr", "decrby", "append", "mset" };
 StringValueType StringCommandHandler::value;
+constexpr const char *StringCommandHandler::commands[];
 #endif //LINUX_SERVER_LIB_KV_STORE_COMMAND_STRUCTS_KV_STRING_COMMAND_H_

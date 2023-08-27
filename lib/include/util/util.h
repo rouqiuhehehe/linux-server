@@ -83,20 +83,39 @@ namespace Utils
         return Size;
     }
 
+    class AllDefaultCopy
+    {
+    public:
+#if __cplusplus >= 201103L
+        AllDefaultCopy () = default;
+        virtual ~AllDefaultCopy () noexcept = default;
+        AllDefaultCopy (const AllDefaultCopy &) = default;
+        AllDefaultCopy &operator= (const AllDefaultCopy &) = default;
+        AllDefaultCopy (AllDefaultCopy &&) noexcept = default;
+        AllDefaultCopy &operator= (AllDefaultCopy &&) noexcept = default;
+#else
+        AllDefaultCopy () {}
+        ~AllDefaultCopy () {}
+private:
+        AllDefaultCopy (const AllDefaultCopy &) {}
+        AllDefaultCopy &operator= (const AllDefaultCopy &) {}
+#endif
+    };
+
     class NonAbleCopy
     {
     public:
 #if __cplusplus >= 201103L
         NonAbleCopy () = default;
-        virtual ~NonAbleCopy () noexcept = default;
+        ~NonAbleCopy () noexcept = default;
         NonAbleCopy (const NonAbleCopy &) = delete;
         NonAbleCopy &operator= (const NonAbleCopy &) = delete;
 #else
         NonAbleCopy () {}
-    virtual ~NonAbleCopy () {}
+        ~NonAbleCopy () {}
 private:
-    NonAbleCopy (const NonAbleCopy &) = default;
-    NonAbleCopy &operator= (const NonAbleCopy &) = default;
+        NonAbleCopy (const NonAbleCopy &) {}
+        NonAbleCopy &operator= (const NonAbleCopy &) {}
 #endif
     };
 
@@ -105,7 +124,7 @@ private:
     {
     public:
         NonAbleMoveCopy () = default;
-        virtual ~NonAbleMoveCopy () noexcept = default;
+        ~NonAbleMoveCopy () noexcept = default;
         NonAbleMoveCopy (NonAbleMoveCopy &&) noexcept = delete;
         NonAbleMoveCopy &operator= (NonAbleMoveCopy &&) noexcept = delete;
     };
@@ -114,7 +133,7 @@ private:
     {
     public:
         NonAbleAllCopy () = default;
-        ~NonAbleAllCopy () noexcept override = default;
+        ~NonAbleAllCopy () noexcept = default;
     };
 
     inline int getRandomNum (int a, int b)

@@ -388,6 +388,7 @@ private:
     {
         std::string resMessage;
         int idx = 0;
+        static std::stringstream stringFormatter;
         switch (resValue.model)
         {
             case ResValueType::ReplyModel::REPLY_UNKNOWN:
@@ -403,7 +404,12 @@ private:
                 resMessage = resValue.value;
                 break;
             case ResValueType::ReplyModel::REPLY_ARRAY:
-                std::stringstream stringFormatter;
+                if (resValue.elements.empty())
+                {
+                    resMessage = "(empty array)";
+                    break;
+                }
+                stringFormatter.str("");
                 for (auto &v : resValue.elements)
                     stringFormatter << ++idx << ") \"" << formatResValue(v) << std::endl;
                 resMessage = std::move(stringFormatter.str());

@@ -3,7 +3,6 @@
 //
 #include "kv-store.h"
 #include "tcp.h"
-#include <map>
 
 int main ()
 {
@@ -11,6 +10,5 @@ int main ()
     Tcp <> tcpServer(3000);
 
     tcpServer.mainLoop();
-
     return 0;
 }

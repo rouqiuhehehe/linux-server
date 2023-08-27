@@ -13,7 +13,7 @@
 #include "command-structs/kv-string-command.h"
 #include "command-structs/kv-hash-command.h"
 
-class BaseCommandHandler
+class BaseCommandHandler : public CommandCommon
 {
 protected:
     using ExpireMapType = std::unordered_map <KeyType,
@@ -112,10 +112,22 @@ protected:
 protected:
     AllKeyMapType keyOfStructType;
     ExpireMapType expireKey;
-    static const char *commands[];
+    static constexpr const char *commands[] {
+        "flushall",
+        "del",
+        "expire",
+        "pexpire",
+        "ttl",
+        "pttl",
+        "keys",
+        "flushdb",
+        "exists",
+        "type"
+    };
 };
 
-class CommandHandler final : public BaseCommandHandler, public CommandCommon
+constexpr const char *BaseCommandHandler::commands[];
+class CommandHandler final : public BaseCommandHandler
 {
 public:
     CommandHandler ()
@@ -147,6 +159,7 @@ public:
             case StructType::LIST:
                 break;
             case StructType::HASH:
+                findHashCommand(commandParams, res);
                 break;
             case StructType::SET:
                 break;
@@ -156,7 +169,7 @@ public:
                 break;
         }
 
-        bool foundIt = findStringCommand(commandParams, res);
+        bool foundIt = findStringCommand(commandParams, res) || findHashCommand(commandParams, res);
         if (!foundIt)
             res.setErrorStr(commandParams, ResValueType::ErrorType::UNKNOWN_COMMAND);
 
@@ -370,11 +383,18 @@ private:
     void registerEvents ()
     {
         eventObserver.on(
-            static_cast<int>(EventType::ADD_KEY),
+            ENUM_TO_INT(EventType::ADD_KEY),
             std::bind(&CommandHandler::addKeyEvent, this, std::placeholders::_1));
         eventObserver.on(
-            static_cast<int>(EventType::RESET_EXPIRE),
+            ENUM_TO_INT(EventType::RESET_EXPIRE),
             std::bind(&CommandHandler::resetExpire, this, std::placeholders::_1));
+        eventObserver.on(
+            ENUM_TO_INT(EventType::DEL_KEY),
+            std::bind(
+                static_cast<void (CommandHandler::*) (void *)>(&CommandHandler::delKeyEvent),
+                this,
+                std::placeholders::_1
+            ));
     }
 
     void addKeyEvent (void *arg)
@@ -396,6 +416,13 @@ private:
         );
     }
 
+    void delKeyEvent (void *arg)
+    {
+        auto eventAddObserverParams = static_cast<EventAddObserverParams *>(arg);
+
+        delKeyEvent(eventAddObserverParams->key);
+    }
+
     void setExpire (
         const std::string &key,
         const StructType structType,
@@ -413,10 +440,29 @@ private:
     size_t delKeyEvent (const std::string &key)
     {
         auto it = expireKey.find(key);
-        if (delKeyEvent(it) == expireKey.end())
-            return 0;
+        // 没有过期key
+        if (it == expireKey.end())
+        {
+            auto keyIt = keyOfStructType.find(key);
+            return delKeyEvent(keyIt);
+        }
+            // 有过期的key
+        else
+        {
+            if (delKeyEvent(it) == expireKey.end())
+                return 0;
+        }
 
         return 1;
+    }
+
+    size_t delKeyEvent (AllKeyMapType::iterator &it)
+    {
+        if (it == keyOfStructType.end())
+            return 0;
+
+        keyOfStructType.erase(it);
+        switchDelCommon(it->first, it->second);
     }
 
     ExpireMapType::iterator delKeyEvent (ExpireMapType::iterator &it)
@@ -429,27 +475,33 @@ private:
             const StructType structType = it->second.first;
             resIt = expireKey.erase(it);
 
-            switch (structType)
-            {
-                case StructType::STRING:
-                    stringCommandHandler.delKey(it->first);
-                    break;
-                case StructType::LIST:
-                    break;
-                case StructType::HASH:
-                    break;
-                case StructType::SET:
-                    break;
-                case StructType::ZSET:
-                    break;
-                case StructType::NIL:
-                    break;
-                case StructType::END:
-                    break;
-            }
+            switchDelCommon(it->first, structType);
         }
 
         return resIt;
+    }
+
+    void switchDelCommon (const std::string &key, StructType structType)
+    {
+        switch (structType)
+        {
+            case StructType::STRING:
+                stringCommandHandler.delKey(key);
+                break;
+            case StructType::LIST:
+                break;
+            case StructType::HASH:
+                hashCommandHandler.delKey(key);
+                break;
+            case StructType::SET:
+                break;
+            case StructType::ZSET:
+                break;
+            case StructType::NIL:
+                break;
+            case StructType::END:
+                break;
+        }
     }
 
     StructType checkExpireKey (const std::string &key)
@@ -472,12 +524,6 @@ private:
         return expireKey.end();
     }
 
-    static inline std::chrono::milliseconds getNow () noexcept
-    {
-        return std::chrono::duration_cast <std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch());
-    }
-
     inline bool findStringCommand (const CommandParams &commandParams, ResValueType &res)
     {
         StringCommandHandler::Commands
@@ -486,6 +532,20 @@ private:
         if (stringCommand != StringCommandHandler::Commands::END)
         {
             commandHandlerResByString(commandParams, res, stringCommand);
+            return true;
+        }
+
+        return false;
+    }
+
+    inline bool findHashCommand (const CommandParams &commandParams, ResValueType &res)
+    {
+        HashCommandHandler::Commands
+            hashCommand = HashCommandHandler::findCommand(commandParams.command);
+
+        if (hashCommand != HashCommandHandler::Commands::END)
+        {
+            commandHandlerResByHash(commandParams, res, hashCommand);
             return true;
         }
 
@@ -508,17 +568,37 @@ private:
             ));
     }
 
+    inline void commandHandlerResByHash (
+        const CommandParams &commandParams,
+        ResValueType &res,
+        const HashCommandHandler::Commands &hashCommand
+    )
+    {
+        if (!checkKeyType(commandParams, StructType::HASH, res))
+            return;
+
+        res = std::move(
+            hashCommandHandler.handlerCommand(
+                commandParams,
+                hashCommand
+            ));
+    }
+
 private:
+    static inline std::chrono::milliseconds getNow () noexcept
+    {
+        return std::chrono::duration_cast <std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch());
+    }
+
     StringCommandHandler stringCommandHandler;
+    HashCommandHandler hashCommandHandler;
 
     static constexpr int onceCheckExpireKeyMaxNum = 20;
     static constexpr int nilExpire = -2;
     static constexpr std::chrono::milliseconds onceCheckExpireKeyMaxTime { 30 };
 };
 
-const char
-    *BaseCommandHandler::commands[]
-    { "flushall", "del", "expire", "pexpire", "ttl", "pttl", "keys", "flushdb", "exists", "type" };
 constexpr std::chrono::milliseconds CommandHandler::onceCheckExpireKeyMaxTime;
 
 #endif //LINUX_SERVER_LIB_KV_STORE_KV_COMMAND_H_

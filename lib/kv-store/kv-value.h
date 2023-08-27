@@ -23,7 +23,7 @@ using KeyType = std::string;
 using IntegerType = long long;
 using FloatType = double;
 enum class StructType { NIL = -1, STRING, LIST, HASH, SET, ZSET, END };
-enum EventType { ADD_KEY, RESET_EXPIRE };
+enum EventType { ADD_KEY, RESET_EXPIRE, DEL_KEY };
 using EventsObserverType = EventsObserver <int>;
 
 typedef struct
@@ -59,7 +59,7 @@ struct StringValueType
     bool isReturnOldValue = false;
 };
 
-struct ResValueType
+struct ResValueType : Utils::AllDefaultCopy
 {
     enum class ReplyModel
     {
@@ -89,7 +89,11 @@ struct ResValueType
         // incr或decr 后溢出报错
         INCR_OR_DECR_OVERFLOW,
         // 时间为 复数或0时报错
-        INVALID_EXPIRE_TIME
+        INVALID_EXPIRE_TIME,
+        // hincrby 储存value不为整数时报错
+        HASH_VALUE_NOT_INTEGER,
+        // hincrbyfloat 储存value不为double时报错
+        HASH_VALUE_NOT_FLOAT
     };
 
     ResValueType () = default;
@@ -101,6 +105,19 @@ struct ResValueType
     {
         operator=(std::move(rhs));
     }
+
+    ResValueType (const ValueType &rhs, ReplyModel replyModel) noexcept
+    {
+        value = rhs;
+        model = replyModel;
+    }
+
+    ResValueType (ValueType &&rhs, ReplyModel replyModel) noexcept
+    {
+        value = std::move(rhs);
+        model = replyModel;
+    }
+
     ResValueType &operator= (const ValueType &rhs) noexcept
     {
         value = rhs;
@@ -179,6 +196,12 @@ struct ResValueType
                 );
                 value = msg;
                 break;
+            case ErrorType::HASH_VALUE_NOT_INTEGER:
+                value = "ERR hash value is not an integer";
+                break;
+            case ErrorType::HASH_VALUE_NOT_FLOAT:
+                value = "ERR hash value is not a float";
+                break;
         }
     }
 
@@ -228,14 +251,14 @@ struct ResValueType
     template <class ...Arg>
     inline void setVectorValue (const ValueType &res, Arg &&...arg)
     {
-        elements.emplace_back(res);
+        elements.emplace_back(res, ReplyModel::REPLY_STRING);
         setVectorValue(std::forward <Arg>(arg)...);
     }
 
     template <class ...Arg>
     inline void setVectorValue (ValueType &&res, Arg &&...arg)
     {
-        elements.emplace_back(std::move(res));
+        elements.emplace_back(std::move(res), ReplyModel::REPLY_STRING);
         setVectorValue(std::forward <Arg>(arg)...);
     }
 
@@ -253,13 +276,18 @@ struct ResValueType
 
     inline void setVectorValue (const ValueType &res)
     {
-        elements.emplace_back(res);
+        elements.emplace_back(res, ReplyModel::REPLY_STRING);
         model = ReplyModel::REPLY_ARRAY;
     }
 
     inline void setVectorValue (ValueType &&res)
     {
-        elements.emplace_back(std::move(res));
+        elements.emplace_back(std::move(res), ReplyModel::REPLY_STRING);
+        model = ReplyModel::REPLY_ARRAY;
+    }
+
+    inline void setEmptyVectorValue ()
+    {
         model = ReplyModel::REPLY_ARRAY;
     }
 
