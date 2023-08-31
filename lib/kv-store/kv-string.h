@@ -6,7 +6,7 @@
 #define LINUX_SERVER_LIB_KV_STORE_KV_STRING_H_
 
 #include <map>
-#include "skiplist.h"
+#include "data-structure/kv-skiplist.h"
 #include <unordered_map>
 #include "kv-value.h"
 

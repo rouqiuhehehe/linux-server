@@ -5,7 +5,7 @@
 #ifndef LINUX_SERVER_LIB_KV_STORE_COMMAND_STRUCTS_KV_HASH_COMMAND_H_
 #define LINUX_SERVER_LIB_KV_STORE_COMMAND_STRUCTS_KV_HASH_COMMAND_H_
 
-#include "command-common.h"
+#include "kv-command-common.h"
 
 class HashCommandHandler : public CommandCommon
 {
@@ -333,7 +333,7 @@ private:
         else
             hashMap = &it->second;
 
-        for (int i = 0; i < commandParams.params.size();)
+        for (size_t i = 0; i < commandParams.params.size();)
         {
             // c++ 函数参数加载顺序是未定义的，所以不能写成i++ 因为有可能是第二个参数先加载
             auto hashIt = hashMap->emplace(commandParams.params[i], commandParams.params[i + 1]);

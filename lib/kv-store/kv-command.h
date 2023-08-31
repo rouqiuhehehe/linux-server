@@ -4,14 +4,16 @@
 
 #ifndef LINUX_SERVER_LIB_KV_STORE_KV_COMMAND_H_
 #define LINUX_SERVER_LIB_KV_STORE_KV_COMMAND_H_
+
 #include <algorithm>
 #include "util/string-helper.h"
 #include "util/math-helper.h"
 #include "kv-value.h"
-#include "unordered_map"
-#include "command-structs/command-common.h"
+#include <unordered_map>
+#include "command-structs/kv-command-common.h"
 #include "command-structs/kv-string-command.h"
 #include "command-structs/kv-hash-command.h"
+
 
 class BaseCommandHandler : public CommandCommon
 {
@@ -108,7 +110,6 @@ protected:
     }
 
     FIND_COMMAND
-
 protected:
     AllKeyMapType keyOfStructType;
     ExpireMapType expireKey;
@@ -301,7 +302,7 @@ protected:
             return;
 
         KeyType key = commandParams.key;
-        int i = 0, count = 0;
+        size_t i = 0, count = 0;
         AllKeyMapType::iterator it;
         auto end = keyOfStructType.end();
         do

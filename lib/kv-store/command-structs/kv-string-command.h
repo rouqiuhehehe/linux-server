@@ -4,7 +4,7 @@
 
 #ifndef LINUX_SERVER_LIB_KV_STORE_COMMAND_STRUCTS_KV_STRING_COMMAND_H_
 #define LINUX_SERVER_LIB_KV_STORE_COMMAND_STRUCTS_KV_STRING_COMMAND_H_
-#include "command-common.h"
+#include "kv-command-common.h"
 
 class StringCommandHandler : public CommandCommon
 {
@@ -217,7 +217,7 @@ private:
         CommandParams loopParams;
         loopParams.command = commands[ENUM_TO_INT(Commands::SET)];
         loopParams.key = commandParams.key;
-        int i = 0;
+        size_t i = 0;
         // 设置value
         loopParams.params.emplace_back(commandParams.params[i++]);
         for (;;)
