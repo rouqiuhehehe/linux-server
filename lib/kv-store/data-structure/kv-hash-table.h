@@ -7,6 +7,7 @@
 #ifndef LINUX_SERVER_LIB_KV_STORE_DATA_STRUCTURE_KV_HASH_TABLE_H_
 #define LINUX_SERVER_LIB_KV_STORE_DATA_STRUCTURE_KV_HASH_TABLE_H_
 
+#include <iostream>
 #include <functional>
 #include <cstddef>
 
@@ -19,8 +20,8 @@ template <class _Key, class _Val, bool autoReserve = true, typename _Hash = std:
     typename _Alloc = std::allocator <std::pair <const _Key, _Val>>>
 class HashTable
 {
-
     using HashNodeType = std::pair <const _Key, _Val>;
+    using ExtractKey = std::__detail::_Select1st;
     struct PrimeRehashPolicy : std::__detail::_Prime_rehash_policy
     {
         // 缩容
@@ -51,25 +52,52 @@ class HashTable
         _HashTableNodeNextPtr () = default;
         _HashTableNodeNextPtr *next = nullptr;
     };
-    struct _HashTableNode : _HashTableNodeNextPtr
+    struct _HashTableNodeHashCode
+    {
+        explicit _HashTableNodeHashCode (const _Key &key)
+            : hashCode(_Hash {}(key)) {}
+        const size_t hashCode;
+    };
+    struct _HashTableNodeBase
+    {
+        template <class ...Arg>
+        explicit _HashTableNodeBase (Arg &&...arg)
+            :
+            node(std::make_pair(std::forward <Arg>(arg)...)) {}
+        HashNodeType node;
+    };
+    struct _HashTableNode : _HashTableNodeBase, _HashTableNodeNextPtr, _HashTableNodeHashCode
     {
 
         template <class ...Arg>
         explicit _HashTableNode (Arg &&...arg)
-            : node(std::make_pair(std::forward <Arg>(arg)...)) {}
-        HashNodeType node;
+            : _HashTableNodeBase(std::forward <Arg>(arg)...),
+              _HashTableNodeHashCode(ExtractKey {}(this->node)) {}
+
+        inline _HashTableNode *getNext () const noexcept
+        {
+            return static_cast<_HashTableNode *>(this->next);
+        }
     };
     struct _HashTableNodeAllocator
     {
-        using Alloc = typename _Alloc::template rebind <_HashTableNode *>::other;
+        using Alloc = typename _Alloc::template rebind <_HashTableNode>::other;
         Alloc alloc;
     };
+    struct _HashTableBucketsAllocator
+    {
+        using Alloc = typename _Alloc::template rebind <_HashTableNodeNextPtr *>::other;
+        Alloc alloc;
+    };
+
+    using NodePtr = _HashTableNode *;
+    using NodeBasePtr = _HashTableNodeNextPtr *;
 
 public:
     class HashTableIterator
     {
     public:
-        explicit HashTableIterator (const _HashTableNode *node)
+        explicit HashTableIterator (NodePtr node)
             : node(node) {}
 
         inline bool operator== (const HashTableIterator &rhs) const noexcept
@@ -82,7 +110,7 @@ public:
         }
         inline HashTableIterator &operator++ () noexcept
         {
-            node = node->next;
+            node = node->getNext();
             return *this;
         }
         inline HashTableIterator &operator++ (int) noexcept // NOLINT
@@ -92,8 +120,28 @@ public:
             return old;
         }
 
+        inline HashNodeType &operator* () const noexcept
+        {
+            return node->node;
+        }
+
+        inline NodePtr operator-> () const noexcept
+        {
+            return node;
+        }
+
+        inline HashNodeType &operator* () noexcept
+        {
+            return node->node;
+        }
+
+        inline NodePtr operator-> () noexcept
+        {
+            return node;
+        }
+
     private:
-        _HashTableNode *node;
+        NodePtr node;
     };
     enum class OperatorStatus
     {
@@ -108,7 +156,7 @@ public:
 
 private:
     using Iterator = HashTable::HashTableIterator;
-    using constIterator = const HashTable::HashTableIterator;
+    using ConstIterator = const HashTable::HashTableIterator;
 
 public:
     template <class ...Arg>
@@ -124,7 +172,73 @@ public:
                 return { OperatorStatus::FAILURE_NEED_EXPAND, Iterator { nullptr }};
         }
 
-        emplacePrivate(std::forward <Arg>(arg)...);
+        auto node = hashTableNodeAllocator.alloc.allocate(sizeof(_HashTableNode));
+        hashTableNodeAllocator.alloc.construct(node, std::forward <Arg>(arg)...);
+
+        const std::string &key = ExtractKey {}(node->node);
+        size_t hashCode = getHash(key);
+        size_t idx = getHashIndex(hashCode);
+
+        auto p = findBeforeNode(idx, key, hashCode);
+        if (p)
+            return { OperatorStatus::FAILURE_KEY_REPEAT, Iterator(static_cast<NodePtr>(p->next)) };
+
+        insertUniqueNode(idx, node);
+
+        return { OperatorStatus::OPERATOR_SUCCESS, Iterator(node) };
+    }
+
+    size_t erase (const _Key &key)
+    {
+        size_t hashCode = getHash(key);
+        size_t idx = getHashIndex(hashCode);
+
+        auto p = findBeforeNode(idx, key, hashCode);
+        if (!p) return 0;
+
+        auto old = static_cast<NodePtr>(p->next);
+        p->next = p->next->next;
+
+        hashTableNodeAllocator.alloc.deallocate(old, 1);
+        --elementCount;
+
+        if (needRehash(-1))
+        {
+            
+        }
+        return 1;
+    }
+    std::pair <OperatorStatus, Iterator> erase (Iterator it)
+    {
+    }
+
+    Iterator find (const _Key &key) const noexcept
+    {
+        size_t hashCode = getHash(key);
+        size_t idx = getHashIndex(hashCode);
+
+        auto p = findBeforeNode(idx, key, hashCode);
+        if (p)
+            return ConstIterator(static_cast<NodePtr>(p->next));
+
+        return ConstIterator(nullptr);
+    }
+
+    Iterator find (const _Key &key) noexcept
+    {
+        size_t hashCode = getHash(key);
+        size_t idx = getHashIndex(hashCode);
+
+        auto p = findBeforeNode(idx, key, hashCode);
+        if (p)
+            return Iterator(static_cast<NodePtr>(p->next));
+
+        return Iterator(p);
+    }
+
+    inline size_t size () const noexcept
+    {
+        return elementCount;
     }
 
     inline void setMaxLoadFactor (float f)
@@ -142,63 +256,143 @@ public:
 
     inline Iterator begin () const noexcept
     {
-        return { _begin };
+        return ConstIterator(static_cast<NodePtr>(_begin.next));
     }
 
     inline Iterator end () const noexcept
     {
-        return { nullptr };
+        return ConstIterator(nullptr);
     }
 
     inline Iterator begin () noexcept
     {
-        return { _begin };
+        return Iterator(static_cast<NodePtr>(_begin.next));
     }
 
     inline Iterator end () noexcept
     {
-        return { nullptr };
+        return Iterator(nullptr);
     }
 
-private:
-    inline size_t getHashIndex (const _Key &key) const
-    {
-        return _Hash {}(key) % bucketCount;
-    }
 public:
+    inline size_t getHash (const _Key &key) const noexcept
+    {
+        return _Hash {}(key);
+    }
+    inline size_t getHash (const NodePtr p) const noexcept
+    {
+        return _Hash {}(ExtractKey {}(p->node));
+    }
+    inline size_t getHashIndex (const _Key &key) const noexcept
+    {
+        return getHash(key) % bucketCount;
+    }
+
+    inline size_t getHashIndex (const size_t hash) const noexcept
+    {
+        return hash % bucketCount;
+    }
+
+    inline size_t getHashIndex (const _HashTableNode &node) const
+    {
+        return node.hashCode % bucketCount;
+    }
+
+    Iterator insertUniqueNode (size_t idx, NodePtr node)
+    {
+        insertBucketBegin(idx, node);
+        ++elementCount;
+        return Iterator(node);
+    }
     void reHash (size_t resize)
     {
         auto oldBuckets = buckets;
-        buckets = hashTableNodeAllocator.alloc.allocate(resize);
+        buckets = bucketsAllocator.alloc.allocate(resize);
         bucketCount = resize;
 
-        for (auto v : *this)
+        auto p = static_cast<NodePtr>(_begin.next);
+        if (p)
         {
+            _begin.next = nullptr;
+            NodePtr next;
+            do
+            {
+                next = p->getNext();
+                moveNode(p);
+                p = next;
+            } while (p != nullptr);
+        }
+        bucketsAllocator.alloc.deallocate(oldBuckets, 1);
+    }
 
+    inline void moveNode (NodePtr tableNode)
+    {
+        auto idx = getHashIndex(*tableNode);
+
+        // 插入
+        insertBucketBegin(idx, tableNode);
+    }
+
+    void insertBucketBegin (size_t idx, NodePtr node)
+    {
+        // 如果当前slot已经有元素，头插
+        if (buckets[idx])
+        {
+            node->next = buckets[idx]->next;
+            buckets[idx]->next = node;
+        }
+        else
+        {
+            // 没有元素，直接修改_begin->next指针
+            node->next = _begin.next;
+            _begin.next = node;
+
+            // hash slot储存的是单链表上一节点的数据
+            // 如果node不是唯一节点，把获取node->next的slot，把slot指向node
+            if (node->next)
+                buckets[getHashIndex(*node->getNext())] = node;
+
+            buckets[idx] = &_begin;
         }
     }
 
-    inline void moveNode (_HashTableNode *tableNode)
+    NodeBasePtr findBeforeNode (size_t idx, const _Key &key, size_t hashCode) const noexcept
     {
-        auto hash = getHashIndex(tableNode->node.first);
+        NodeBasePtr prevPtr = buckets[idx];
+        if (!prevPtr)
+            return nullptr;
 
-        // 插入
+        auto ptr = static_cast<NodePtr>(prevPtr->next);
+        for (;; ptr = ptr->getNext())
+        {
+            if (equals(key, hashCode, ptr))
+                return prevPtr;
+
+            if (!ptr->next || getHashIndex(*ptr) != idx)
+                break;
+
+            prevPtr = ptr;
+        }
+        return nullptr;
     }
 
-    template <class ...Arg>
-    void emplacePrivate (Arg &&...arg)
+    bool equals (const _Key &key, const size_t hashCode, NodePtr node) const noexcept
     {
+        static _Pred eq {};
 
+        return node->hashCode == hashCode && eq(key, ExtractKey {}(node->node));
     }
 
 private:
     size_t bucketCount = 0;
     size_t elementCount = 0;
-    _HashTableNode **buckets;
+    NodeBasePtr *buckets = nullptr;
+
     PrimeRehashPolicy primeRehashPolicy;
-    _HashTableNodeNextPtr *_begin;
+    _HashTableNodeNextPtr _begin;
 
     _HashTableNodeAllocator hashTableNodeAllocator;
+    _HashTableBucketsAllocator bucketsAllocator;
 };
 #endif //LINUX_SERVER_LIB_KV_STORE_DATA_STRUCTURE_KV_HASH_TABLE_H_
 

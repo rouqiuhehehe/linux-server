@@ -25,14 +25,12 @@ private:
 };
 int main ()
 {
-    auto c = new int { 3 };
-    A a(c);
-    auto d = a++;
-    // std::unordered_map <int, A> df;
     // auto c = df.begin();
     HashTable <std::string, int> cc;
+    cc.emplace("dsa", 1123);
 
-    cc.reHash(10);
+    std::unordered_map <int, int> sd;
+    cc.erase("dsa");
     // setbuf(stdout, nullptr);
     // Tcp <> tcpServer(3000);
     //
