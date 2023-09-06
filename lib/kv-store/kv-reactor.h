@@ -19,7 +19,7 @@
 #define MAX_EPOLL_ONCE_NUM 1024
 #define MESSAGE_SIZE_MAX 65535
 
-#define SET_COMMON_EPOLL_FLAG(event) (event | EPOLLHUP | EPOLLRDHUP)
+#define SET_COMMON_EPOLL_FLAG(event) ((event) | EPOLLHUP | EPOLLRDHUP)
 
 template <int>
 class Tcp;
@@ -42,8 +42,8 @@ struct SockEpollPtr
         : fd(fd), sockaddr(sockaddrIn) {}
     int fd;
     struct sockaddr_in sockaddr;
-    ResValueType resValue;
-    CommandParams commandParams;
+    ResValueType resValue {};
+    CommandParams commandParams {};
     QUEUE_STATUS status = STATUS_LISTEN;
     std::string msg {};
 };
@@ -322,8 +322,8 @@ private:
             else if (ret == 0)
             {
                 PRINT_INFO("pipe close : %s, sockfd : %d",
-                           Utils::getIpAndHost(fnParams.sockaddr).c_str(),
-                           fnParams.fd);
+                    Utils::getIpAndHost(fnParams.sockaddr).c_str(),
+                    fnParams.fd);
                 fnParams.status = SockEpollPtr::STATUS_RECV_BAD;
                 break;
             }
@@ -331,10 +331,10 @@ private:
             {
                 message[ret] = '\0';
                 PRINT_INFO("get client command : %s,  addr : %s, sockfd : %d, thread : %lu",
-                           message,
-                           Utils::getIpAndHost(fnParams.sockaddr).c_str(),
-                           fnParams.fd,
-                           pthread_self());
+                    message,
+                    Utils::getIpAndHost(fnParams.sockaddr).c_str(),
+                    fnParams.fd,
+                    pthread_self());
 
                 fnParams.msg = message;
                 // 命令解析
@@ -364,8 +364,8 @@ private:
             else if (ret == 0)
             {
                 PRINT_INFO("pipe close : %s, sockfd : %d",
-                           Utils::getIpAndHost(fnParams.sockaddr).c_str(),
-                           fnParams.fd);
+                    Utils::getIpAndHost(fnParams.sockaddr).c_str(),
+                    fnParams.fd);
                 fnParams.status = SockEpollPtr::STATUS_SEND_BAD;
                 break;
             }
@@ -412,7 +412,7 @@ private:
                 stringFormatter.str("");
                 for (auto &v : resValue.elements)
                     stringFormatter << ++idx << ") \"" << formatResValue(v) << std::endl;
-                resMessage = std::move(stringFormatter.str());
+                resMessage = stringFormatter.str();
                 break;
         }
 
@@ -476,8 +476,8 @@ public:
                 if (event->events & EPOLLRDHUP)
                 {
                     PRINT_INFO("对端关闭， addr : %s , fd : %d",
-                               Utils::getIpAndHost(epollPtr->sockaddr).c_str(),
-                               epollPtr->fd);
+                        Utils::getIpAndHost(epollPtr->sockaddr).c_str(),
+                        epollPtr->fd);
                     closeSock(*epollPtr);
                 }
                 else if (event->events & EPOLLHUP)
@@ -529,9 +529,9 @@ private:
         epollAddEvent(*sockParams);
 
         PRINT_INFO("accept by %s:%d , fd : %d",
-                   inet_ntoa(clientAddr.sin_addr),
-                   ntohs(clientAddr.sin_port),
-                   fd);
+            inet_ntoa(clientAddr.sin_addr),
+            ntohs(clientAddr.sin_port),
+            fd);
     }
     void recvCallback (ParamsType &fnParams)
     {
@@ -569,7 +569,7 @@ private:
         sendAfterHandler();
     }
 
-    inline void distributeTask (const int &num)
+    inline void distributeTask (size_t num)
     {
         static SockfdQueueType::iterator nextIt;
         // 分发任务
@@ -588,7 +588,7 @@ private:
         ioHandler();
 
         while (sockfdQueue().size() != num)
-            std::this_thread::sleep_for(std::chrono::microseconds { 100 });
+            std::this_thread::sleep_for(std::chrono::microseconds { 10 });
 
         // 让io线程休眠
         mutex.lock();
@@ -626,7 +626,7 @@ private:
     inline IoReactor &getRandomReactor ()
     {
         static size_t index = 0;
-        size_t randomReactor = ++index % (IoThreadNum + 1);
+        size_t randomReactor = index++ % (IoThreadNum + 1);
         if (randomReactor == 4)
         {
             return *this;
@@ -646,8 +646,8 @@ private:
     int listenfd;
     struct sockaddr_in clientAddr {};
     std::mutex mutex;
-    int onceLoopRecvSum = 0;
-    int onceLoopSendSum = 0;
+    size_t onceLoopRecvSum = 0;
+    size_t onceLoopSendSum = 0;
     CommandHandler commandHandler;
 
     IoReactor ioReactor[IoThreadNum];

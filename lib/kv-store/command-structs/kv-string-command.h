@@ -248,7 +248,7 @@ private:
         auto it = keyValues.find(commandParams.key);
         if (it == keyValues.end())
         {
-            value.value = doubleValue;
+            value.value = Utils::StringHelper::toString(doubleValue);
             setNewKeyValue(commandParams.key);
 
             resValue.setStringValue(value.value);
@@ -383,7 +383,7 @@ private:
         auto it = keyValues.find(commandParams.key);
         if (it == keyValues.end())
         {
-            value.value = step;
+            value.value = std::to_string(step);
             setNewKeyValue(commandParams.key);
 
             resValue.setIntegerValue(step);

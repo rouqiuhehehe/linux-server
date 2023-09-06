@@ -51,12 +51,9 @@ namespace Utils
                 index += count + 1;
                 count = 0;
                 if (isContinuously)
-                {
-                    while (str[index++] == split && index < str.size());
-                    index--;
-                }
+                    while (index < str.size() && str[index] == split) index++;
 
-                while (str[index + ++count] != split && (index + count) < str.size());
+                while ((index + count) < str.size() && str[index + ++count] != split);
             }
 
             return res;

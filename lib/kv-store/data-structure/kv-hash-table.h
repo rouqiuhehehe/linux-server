@@ -12,6 +12,7 @@
 #include <cstddef>
 
 #include <memory>
+#include <cstring>
 #include <ext/aligned_buffer.h>
 #include <bits/hashtable_policy.h>
 
@@ -79,41 +80,74 @@ class HashTable
             return static_cast<_HashTableNode *>(this->next);
         }
     };
+
+    using NodePtr = _HashTableNode *;
+    using NodeBasePtr = _HashTableNodeNextPtr *;
+
     struct _HashTableNodeAllocator
     {
         using Alloc = typename _Alloc::template rebind <_HashTableNode>::other;
+
+        template <class ...Arg>
+        inline NodePtr allocateNode (Arg &&...arg)
+        {
+            auto p = alloc.allocate(1);
+            alloc.construct(p, std::forward <Arg>(arg)...);
+
+            return p;
+        }
+
+        inline void deallocateNode (NodePtr ptr)
+        {
+            alloc.destroy(ptr);
+            alloc.deallocate(ptr, 1);
+        }
+
+    private:
         Alloc alloc;
     };
     struct _HashTableBucketsAllocator
     {
         using Alloc = typename _Alloc::template rebind <_HashTableNodeNextPtr *>::other;
+
+        inline NodeBasePtr *allocateBuckets (size_t n)
+        {
+            auto p = alloc.allocate(n);
+            memset(p, 0, n * sizeof(NodeBasePtr)); // NOLINT
+
+            return p;
+        }
+
+        inline void deallocateBuckets (NodeBasePtr *ptr, size_t n)
+        {
+            alloc.deallocate(ptr, n);
+        }
+
+    private:
         Alloc alloc;
     };
 
-    using NodePtr = _HashTableNode *;
-    using NodeBasePtr = _HashTableNodeNextPtr *;
-
 public:
-    class HashTableIterator
+    class _HashTableIterator
     {
     public:
-        explicit HashTableIterator (NodePtr node)
+        explicit _HashTableIterator (NodePtr node)
             : node(node) {}
 
-        inline bool operator== (const HashTableIterator &rhs) const noexcept
+        inline bool operator== (const _HashTableIterator &rhs) const noexcept
         {
             return node == rhs.node;
         }
-        inline bool operator!= (const HashTableIterator &rhs) const noexcept
+        inline bool operator!= (const _HashTableIterator &rhs) const noexcept
         {
             return !operator==(rhs);
         }
-        inline HashTableIterator &operator++ () noexcept
+        inline _HashTableIterator &operator++ () noexcept
         {
             node = node->getNext();
             return *this;
         }
-        inline HashTableIterator &operator++ (int) noexcept // NOLINT
+        inline _HashTableIterator &operator++ (int) noexcept // NOLINT
         {
             auto old = *this;
             ++(*this);
@@ -140,9 +174,15 @@ public:
             return node;
         }
 
+        inline explicit operator bool () const noexcept
+        {
+            return node != nullptr;
+        }
+
     private:
         NodePtr node;
     };
+
     enum class OperatorStatus
     {
         OPERATOR_SUCCESS,
@@ -151,29 +191,31 @@ public:
         // 需要缩容，autoReserve为false时会返回
         FAILURE_NEED_SCALE_DOWN,
         // KEY 重复
-        FAILURE_KEY_REPEAT
+        FAILURE_KEY_REPEAT,
+        // KEY 未找到
+        FAILURE_KEY_NOT_DEFINED
     };
 
-private:
-    using Iterator = HashTable::HashTableIterator;
-    using ConstIterator = const HashTable::HashTableIterator;
+public:
+    using Iterator = HashTable::_HashTableIterator;
+    using ConstIterator = const HashTable::_HashTableIterator;
 
 public:
+    HashTable () = default;
+    ~HashTable () noexcept
+    {
+        clear();
+    }
+
     template <class ...Arg>
     std::pair <OperatorStatus, Iterator> emplace (Arg &&...arg)
     {
 
-        auto doRehash = needRehash(1);
-        if (doRehash.first)
-        {
-            if (autoReserve)
-                reHash(doRehash.second);
-            else
-                return { OperatorStatus::FAILURE_NEED_EXPAND, Iterator { nullptr }};
-        }
+        auto status = checkNeedReHash(1);
+        if (status == OperatorStatus::FAILURE_NEED_EXPAND && !autoReserve)
+            return { status, end() };
 
-        auto node = hashTableNodeAllocator.alloc.allocate(sizeof(_HashTableNode));
-        hashTableNodeAllocator.alloc.construct(node, std::forward <Arg>(arg)...);
+        auto node = hashTableNodeAllocator.allocateNode(std::forward <Arg>(arg)...);
 
         const std::string &key = ExtractKey {}(node->node);
         size_t hashCode = getHash(key);
@@ -188,28 +230,59 @@ public:
         return { OperatorStatus::OPERATOR_SUCCESS, Iterator(node) };
     }
 
-    size_t erase (const _Key &key)
+    std::pair <OperatorStatus, size_t> erase (const _Key &key)
     {
+        if (empty())
+            return { OperatorStatus::FAILURE_KEY_NOT_DEFINED, 0 };
+        auto status = checkNeedReHash(-1);
+        if (status == OperatorStatus::FAILURE_NEED_EXPAND && !autoReserve)
+            return { status, 0 };
+
         size_t hashCode = getHash(key);
         size_t idx = getHashIndex(hashCode);
 
         auto p = findBeforeNode(idx, key, hashCode);
-        if (!p) return 0;
+        if (!p) return { OperatorStatus::FAILURE_KEY_NOT_DEFINED, 0 };
 
-        auto old = static_cast<NodePtr>(p->next);
         p->next = p->next->next;
 
-        hashTableNodeAllocator.alloc.deallocate(old, 1);
+        hashTableNodeAllocator.deallocateNode();
         --elementCount;
 
-        if (needRehash(-1))
-        {
-            
-        }
-        return 1;
+        return { status, 1 };
     }
     std::pair <OperatorStatus, Iterator> erase (Iterator it)
     {
+        if (empty())
+            return { OperatorStatus::FAILURE_KEY_NOT_DEFINED, end() };
+
+        auto node = it.operator->();
+        size_t idx = getHashIndex(*node);
+        NodeBasePtr prevPtr = findBeforeNode(idx, node);
+
+        size_t nextIdx = it->next == nullptr ? 0 : getHashIndex(*it->getNext());
+        // 即 prevPtr->getNext() == it.node
+        if (prevPtr == buckets[idx])
+        {
+            // 如果删除的节点为最后一个节点，或删除的节点next节点所在下标 != 删除节点的下标
+            if (!prevPtr->next || nextIdx != idx)
+                removeBucketBegin(idx, it->getNext(), nextIdx);
+        }
+        else if (it->next)
+        {
+            // 删除的节点next节点所在下标 != 删除节点的下标
+            if (nextIdx != idx)
+                // 修改buckets[nextIdx]指向删除节点的前一个节点
+                buckets[nextIdx] = prevPtr;
+        }
+
+        prevPtr->next = it->next;
+        hashTableNodeAllocator.deallocateNode(node);
+        --elementCount;
+
+        // 删除不做强制缩容
+        auto status = checkNeedReHash(-1);
+        return { status, Iterator(static_cast<NodePtr>(prevPtr->next)) };
     }
 
     Iterator find (const _Key &key) const noexcept
@@ -239,6 +312,32 @@ public:
     inline size_t size () const noexcept
     {
         return elementCount;
+    }
+
+    inline size_t empty () const noexcept
+    {
+        return elementCount == 0;
+    }
+
+    inline void clear () noexcept
+    {
+        if (!empty())
+        {
+            auto ptr = static_cast<NodePtr>(_begin.next);
+            NodePtr old;
+            do
+            {
+                old = ptr;
+                ptr = ptr->getNext();
+                hashTableNodeAllocator.deallocateNode(old);
+            } while (ptr);
+        }
+
+        bucketsAllocator.deallocateBuckets(buckets, bucketCount);
+        elementCount = 0;
+        buckets = nullptr;
+        bucketCount = 0;
+        _begin.next = nullptr;
     }
 
     inline void setMaxLoadFactor (float f)
@@ -274,7 +373,7 @@ public:
         return Iterator(nullptr);
     }
 
-public:
+private:
     inline size_t getHash (const _Key &key) const noexcept
     {
         return _Hash {}(key);
@@ -307,7 +406,9 @@ public:
     void reHash (size_t resize)
     {
         auto oldBuckets = buckets;
-        buckets = bucketsAllocator.alloc.allocate(resize);
+        auto oldSize = bucketCount;
+
+        buckets = bucketsAllocator.allocateBuckets(resize);
         bucketCount = resize;
 
         auto p = static_cast<NodePtr>(_begin.next);
@@ -322,7 +423,7 @@ public:
                 p = next;
             } while (p != nullptr);
         }
-        bucketsAllocator.alloc.deallocate(oldBuckets, 1);
+        bucketsAllocator.deallocateBuckets(oldBuckets, oldSize);
     }
 
     inline void moveNode (NodePtr tableNode)
@@ -356,6 +457,19 @@ public:
         }
     }
 
+    void removeBucketBegin (size_t idx, NodePtr next, size_t nextIdx)
+    {
+        // 如果有next节点，将nextIdx储存的前节点换成当前节点
+        if (next)
+            buckets[nextIdx] = buckets[idx];
+
+        // 如果当前节点是_begin，将_begin的next指向next节点
+        if (buckets[idx] == &_begin)
+            _begin.next = next;
+
+        buckets[idx] = nullptr;
+    }
+
     NodeBasePtr findBeforeNode (size_t idx, const _Key &key, size_t hashCode) const noexcept
     {
         NodeBasePtr prevPtr = buckets[idx];
@@ -376,11 +490,37 @@ public:
         return nullptr;
     }
 
+    NodeBasePtr findBeforeNode (size_t idx, NodePtr p) const noexcept
+    {
+        NodeBasePtr prevPtr = buckets[idx];
+
+        while (prevPtr->next != p)
+            prevPtr = prevPtr->next;
+
+        return prevPtr;
+    }
+
     bool equals (const _Key &key, const size_t hashCode, NodePtr node) const noexcept
     {
         static _Pred eq {};
 
         return node->hashCode == hashCode && eq(key, ExtractKey {}(node->node));
+    }
+
+    OperatorStatus checkNeedReHash (int bkt)
+    {
+        auto doReHash = needRehash(bkt);
+        if (doReHash.first)
+        {
+            if (autoReserve)
+                reHash(doReHash.second);
+
+            return bkt > 0
+                   ? OperatorStatus::FAILURE_NEED_EXPAND
+                   : OperatorStatus::FAILURE_NEED_SCALE_DOWN;
+        }
+
+        return OperatorStatus::OPERATOR_SUCCESS;
     }
 
 private:

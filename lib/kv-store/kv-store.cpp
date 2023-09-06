@@ -26,15 +26,26 @@ private:
 int main ()
 {
     // auto c = df.begin();
-    HashTable <std::string, int> cc;
-    cc.emplace("dsa", 1123);
+    // HashTable <std::string, int> cc;
+    // cc.emplace("dsa", 1123);
+    // cc.emplace("cdsa", 11423);
+    //
+    // std::unordered_map <int, int> sd;
+    //
+    // auto end = cc.end();
+    // for (int i = 0; i < 1000; ++i)
+    // {
+    //     if (cc.emplace(std::to_string(i), i).second == end)
+    //         std::cout << i << std::endl;
+    // }
+    // HashTable <std::string, int>::Iterator it = cc.begin();
+    // do
+    // {
+    //     it = cc.erase(it).second;
+    // } while (it);
+    setbuf(stdout, nullptr);
+    Tcp <> tcpServer(3000);
 
-    std::unordered_map <int, int> sd;
-    cc.erase("dsa");
-    // setbuf(stdout, nullptr);
-    // Tcp <> tcpServer(3000);
-    //
-    //
-    // tcpServer.mainLoop();
+    tcpServer.mainLoop();
     return 0;
 }

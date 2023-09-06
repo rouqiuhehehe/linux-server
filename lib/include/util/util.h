@@ -20,6 +20,8 @@
 #include <arpa/inet.h>
 #include <execinfo.h>
 #include "printf-color.h"
+#include <dlfcn.h>
+#include <cxxabi.h>
 
 namespace Utils
 {
@@ -27,14 +29,32 @@ namespace Utils
     inline void dumpTrackBack ()
     {
         constexpr static int SIZE = 200;
+        constexpr static size_t BUFFER_SIZE = 1024;
         static void *nBuffer[SIZE];
+        static char buffer[BUFFER_SIZE];
+        size_t len = BUFFER_SIZE;
+        int status;
 
         int nPtr = backtrace(nBuffer, SIZE);
         if (nPtr)
         {
-            char **strings = backtrace_symbols(nBuffer, nPtr);
+            Dl_info dlInfo;
             for (int i = 0; i < nPtr; ++i)
-                PRINT_ERROR("%s", strings[i]);
+            {
+                if (dladdr(nBuffer[i], &dlInfo))
+                {
+                    abi::__cxa_demangle(dlInfo.dli_sname, buffer, &len, &status);
+                    if (status == 0)
+                    {
+                        buffer[len] = '\0';
+                        PRINT_ERROR("at %p : %s[+0x%lx] (%s)",
+                            nBuffer[i],
+                            buffer,
+                            (int *)nBuffer[i] - (int *)dlInfo.dli_saddr,
+                            dlInfo.dli_fname);
+                    }
+                }
+            }
         }
     }
     inline std::string getIpAndHost (const struct sockaddr_in &sockaddrIn)

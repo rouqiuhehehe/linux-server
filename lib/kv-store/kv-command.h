@@ -102,7 +102,6 @@ protected:
         auto it = keyOfStructType.find(commandParams.key);
         if (it != keyOfStructType.end() && it->second != structType)
         {
-            res.model = ResValueType::ReplyModel::REPLY_ERROR;
             res.setErrorStr(commandParams, ResValueType::ErrorType::WRONGTYPE);
             return false;
         }
