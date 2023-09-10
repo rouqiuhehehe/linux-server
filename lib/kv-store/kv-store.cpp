@@ -23,14 +23,41 @@ public:
 private:
     int *a;
 };
+class B
+{
+public:
+    void a ()
+    {
+
+    }
+protected:
+    int c;
+};
+class C : public B
+{
+    void a ()
+    {
+        c = 10;
+    }
+};
 int main ()
 {
     // auto c = df.begin();
-    // HashTable <std::string, int> cc;
-    // cc.emplace("dsa", 1123);
-    // cc.emplace("cdsa", 11423);
-    //
-    // std::unordered_map <int, int> sd;
+    HashTable <std::string, int> cc;
+    cc.emplace("dsa", 1123);
+    cc.emplace("cdsa", 11423);
+
+    std::unordered_map <int, int> sd;
+    sd.emplace(123, 324);
+    sd.emplace(1234, 3244);
+    sd.emplace(12344, 32444);
+    sd.emplace(12355, 32455);
+    std::unordered_map <int, int> sdd = sd;
+
+    IncrementallyHashTable <int, int> d;
+    IncrementallyHashTable <int, int>::_IncrementallyHashTableIterator cdc;
+    ++cdc;
+
     //
     // auto end = cc.end();
     // for (int i = 0; i < 1000; ++i)
@@ -44,8 +71,14 @@ int main ()
     //     it = cc.erase(it).second;
     // } while (it);
     setbuf(stdout, nullptr);
-    Tcp <> tcpServer(3000);
+    // Tcp <> tcpServer(3000);
 
-    tcpServer.mainLoop();
+    HashTable <std::string, int> dd = cc;
+    for (auto &v : cc)
+    {
+
+    }
+
+    // tcpServer.mainLoop();
     return 0;
 }

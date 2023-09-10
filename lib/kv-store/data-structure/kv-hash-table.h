@@ -1,5 +1,3 @@
-#pragma clang diagnostic push
-#pragma ide diagnostic ignored "bugprone-reserved-identifier"
 //
 // Created by 115282 on 2023/8/29.
 //
@@ -15,6 +13,7 @@
 #include <cstring>
 #include <ext/aligned_buffer.h>
 #include <bits/hashtable_policy.h>
+#include "util/util.h"
 
 template <class _Key, class _Val, bool autoReserve = true, typename _Hash = std::hash <_Key>,
     typename _Pred = std::equal_to <_Key>,
@@ -128,7 +127,7 @@ class HashTable
     };
 
 public:
-    class _HashTableIterator
+    class _HashTableIterator : Utils::AllDefaultCopy
     {
     public:
         explicit _HashTableIterator (NodePtr node)
@@ -142,12 +141,12 @@ public:
         {
             return !operator==(rhs);
         }
-        inline _HashTableIterator &operator++ () noexcept
+        virtual inline _HashTableIterator &operator++ () noexcept
         {
             node = node->getNext();
             return *this;
         }
-        inline _HashTableIterator &operator++ (int) noexcept // NOLINT
+        virtual inline _HashTableIterator &operator++ (int) noexcept // NOLINT
         {
             auto old = *this;
             ++(*this);
@@ -179,7 +178,7 @@ public:
             return node != nullptr;
         }
 
-    private:
+    protected:
         NodePtr node;
     };
 
@@ -205,6 +204,49 @@ public:
     ~HashTable () noexcept
     {
         clear();
+    }
+
+    HashTable (const HashTable &rhs)
+    {
+        operator=(rhs);
+    }
+
+    HashTable (HashTable &&rhs) noexcept
+    {
+        operator=(std::move(rhs));
+    }
+
+    HashTable &operator= (const HashTable &rhs)
+    {
+        if (&rhs == this)
+            return *this;
+
+        clear();
+        buckets = bucketsAllocator.allocateBuckets(rhs.bucketCount);
+        bucketCount = rhs.bucketCount;
+
+        for (auto &v : rhs)
+            emplace(v.first, v.second);
+
+        return *this;
+    }
+
+    HashTable &operator= (HashTable &&rhs) noexcept
+    {
+        if (this == &rhs)
+            return *this;
+
+        elementCount = rhs.elementCount;
+        bucketCount = rhs.bucketCount;
+        buckets = rhs.buckets;
+        _begin = rhs._begin;
+
+        rhs.elementCount = 0;
+        rhs.bucketCount = 0;
+        rhs.buckets = nullptr;
+        rhs._begin.next = nullptr;
+
+        return *this;
     }
 
     template <class ...Arg>
@@ -535,5 +577,3 @@ private:
     _HashTableBucketsAllocator bucketsAllocator;
 };
 #endif //LINUX_SERVER_LIB_KV_STORE_DATA_STRUCTURE_KV_HASH_TABLE_H_
-
-#pragma clang diagnostic pop
