@@ -8,6 +8,7 @@
 #include <chrono>
 #include <sstream>
 #include "util/events-observer.h"
+#include "util/util.h"
 
 #define EXTRA_PARAMS_NX "nx"
 #define EXTRA_PARAMS_XX "xx"

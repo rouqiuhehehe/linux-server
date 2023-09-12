@@ -1,44 +1,18 @@
 //
 // Created by Yoshiki on 2023/8/3.
 //
-#include "data-structure/kv-incrementally-hash.h"
 #include "kv-store.h"
-#include "kv-tcp.h"
 
 class A
 {
 public:
-    A (int *a)
-        : a(a) {}
-    A &operator++ ()
-    {
-        a = 0;
-    }
-    A operator++ (int)
-    {
-        auto old = *this;
-        ++(*this);
-        return old;
-    }
-private:
-    int *a;
+    A (const A &);
+    A (int);
 };
-class B
+class B : public A
 {
-public:
-    void a ()
-    {
-
-    }
-protected:
-    int c;
-};
-class C : public B
-{
-    void a ()
-    {
-        c = 10;
-    }
+    using A::A;
+    B (const B &);
 };
 int main ()
 {
@@ -47,36 +21,21 @@ int main ()
     cc.emplace("dsa", 1123);
     cc.emplace("cdsa", 11423);
 
-    std::unordered_map <int, int> sd;
-    sd.emplace(123, 324);
-    sd.emplace(1234, 3244);
-    sd.emplace(12344, 32444);
-    sd.emplace(12355, 32455);
-    std::unordered_map <int, int> sdd = sd;
-
-    IncrementallyHashTable <int, int> d;
-    IncrementallyHashTable <int, int>::_IncrementallyHashTableIterator cdc;
-    ++cdc;
-
-    //
-    // auto end = cc.end();
-    // for (int i = 0; i < 1000; ++i)
-    // {
-    //     if (cc.emplace(std::to_string(i), i).second == end)
-    //         std::cout << i << std::endl;
-    // }
-    // HashTable <std::string, int>::Iterator it = cc.begin();
-    // do
-    // {
-    //     it = cc.erase(it).second;
-    // } while (it);
-    setbuf(stdout, nullptr);
+    // setbuf(stdout, nullptr);
     // Tcp <> tcpServer(3000);
-
-    HashTable <std::string, int> dd = cc;
-    for (auto &v : cc)
+    IncrementallyHashTable <int, int> df;
+    for (int i = 0; i < 20; ++i)
     {
+        df.emplace(i, i);
+    }
 
+    df.erase(5);
+    df.erase(3);
+    auto dd = df.find(1);
+
+    for (const auto &v: df)
+    {
+        std::cout << "dddd : " << v.first << std::endl;
     }
 
     // tcpServer.mainLoop();

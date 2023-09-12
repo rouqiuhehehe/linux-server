@@ -15,3 +15,4 @@ target_include_directories(redis-test PUBLIC /usr/local/include)
 
 add_subdirectory(dpdk-test)
 add_subdirectory(cpp-hook)
+add_subdirectory(cpp-20-test)

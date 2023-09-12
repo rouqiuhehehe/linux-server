@@ -4,6 +4,7 @@
 
 #ifndef LINUX_SERVER_LIB_INCLUDE_KV_STORE_KV_STORE_H_
 #define LINUX_SERVER_LIB_INCLUDE_KV_STORE_KV_STORE_H_
-#include "data-structure/kv-skiplist.h"
+#include "kv-tcp.h"
+#include "data-structure/kv-incrementally-hash.h"
 
 #endif //LINUX_SERVER_LIB_INCLUDE_KV_STORE_KV_STORE_H_

@@ -10,6 +10,7 @@
 #include <numeric>
 #include <cerrno>
 #include <sstream>
+#include <vector>
 
 namespace Utils
 {

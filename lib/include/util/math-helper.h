@@ -4,6 +4,8 @@
 
 #ifndef LINUX_SERVER_LIB_INCLUDE_UTIL_MATH_COMPUTE_H_
 #define LINUX_SERVER_LIB_INCLUDE_UTIL_MATH_COMPUTE_H_
+
+#include <cmath>
 namespace Utils
 {
     namespace MathHelper

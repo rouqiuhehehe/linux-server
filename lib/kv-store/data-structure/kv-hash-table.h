@@ -15,11 +15,16 @@
 #include <bits/hashtable_policy.h>
 #include "util/util.h"
 
+template <class _Key, class _Val, typename _Hash,
+    typename _Pred,
+    typename _Alloc>
+class IncrementallyHashTable;
 template <class _Key, class _Val, bool autoReserve = true, typename _Hash = std::hash <_Key>,
     typename _Pred = std::equal_to <_Key>,
     typename _Alloc = std::allocator <std::pair <const _Key, _Val>>>
 class HashTable
 {
+    friend IncrementallyHashTable <_Key, _Val, _Hash, _Pred, _Alloc>;
     using HashNodeType = std::pair <const _Key, _Val>;
     using ExtractKey = std::__detail::_Select1st;
     struct PrimeRehashPolicy : std::__detail::_Prime_rehash_policy
@@ -64,11 +69,12 @@ class HashTable
         explicit _HashTableNodeBase (Arg &&...arg)
             :
             node(std::make_pair(std::forward <Arg>(arg)...)) {}
+
         HashNodeType node;
     };
     struct _HashTableNode : _HashTableNodeBase, _HashTableNodeNextPtr, _HashTableNodeHashCode
     {
-
+        friend HashTable;
         template <class ...Arg>
         explicit _HashTableNode (Arg &&...arg)
             : _HashTableNodeBase(std::forward <Arg>(arg)...),
@@ -129,6 +135,7 @@ class HashTable
 public:
     class _HashTableIterator : Utils::AllDefaultCopy
     {
+        friend IncrementallyHashTable <_Key, _Val, _Hash, _Pred, _Alloc>;
     public:
         explicit _HashTableIterator (NodePtr node)
             : node(node) {}
@@ -141,12 +148,12 @@ public:
         {
             return !operator==(rhs);
         }
-        virtual inline _HashTableIterator &operator++ () noexcept
+        inline _HashTableIterator &operator++ () noexcept
         {
             node = node->getNext();
             return *this;
         }
-        virtual inline _HashTableIterator &operator++ (int) noexcept // NOLINT
+        inline _HashTableIterator operator++ (int) noexcept // NOLINT
         {
             auto old = *this;
             ++(*this);
@@ -158,9 +165,9 @@ public:
             return node->node;
         }
 
-        inline NodePtr operator-> () const noexcept
+        inline HashNodeType *operator-> () const noexcept
         {
-            return node;
+            return &node->node;
         }
 
         inline HashNodeType &operator* () noexcept
@@ -168,9 +175,9 @@ public:
             return node->node;
         }
 
-        inline NodePtr operator-> () noexcept
+        inline HashNodeType *operator-> () noexcept
         {
-            return node;
+            return &node->node;
         }
 
         inline explicit operator bool () const noexcept
@@ -225,8 +232,28 @@ public:
         buckets = bucketsAllocator.allocateBuckets(rhs.bucketCount);
         bucketCount = rhs.bucketCount;
 
-        for (auto &v : rhs)
-            emplace(v.first, v.second);
+        if (rhs.empty())
+            return *this;
+
+        auto node = static_cast<NodePtr>(rhs._begin.next);
+        auto newNode =
+            hashTableNodeAllocator.allocateNode(static_cast<const _HashTableNode &>(*node));
+        _begin.next = newNode;
+        buckets[getHashIndex(*newNode)] = &_begin;
+
+        auto prevNode = newNode;
+        size_t idx;
+        for (node = node->getNext(); node; node = node->getNext())
+        {
+            newNode =
+                hashTableNodeAllocator.allocateNode(static_cast<const _HashTableNode &>(*node));
+            prevNode->next = newNode;
+            idx = getHashIndex(*newNode);
+            if (!buckets[idx])
+                buckets[idx] = prevNode;
+
+            prevNode = newNode;
+        }
 
         return *this;
     }
@@ -252,14 +279,13 @@ public:
     template <class ...Arg>
     std::pair <OperatorStatus, Iterator> emplace (Arg &&...arg)
     {
-
         auto status = checkNeedReHash(1);
         if (status == OperatorStatus::FAILURE_NEED_EXPAND && !autoReserve)
             return { status, end() };
 
         auto node = hashTableNodeAllocator.allocateNode(std::forward <Arg>(arg)...);
 
-        const std::string &key = ExtractKey {}(node->node);
+        const _Key &key = ExtractKey {}(node->node);
         size_t hashCode = getHash(key);
         size_t idx = getHashIndex(hashCode);
 
@@ -267,9 +293,9 @@ public:
         if (p)
             return { OperatorStatus::FAILURE_KEY_REPEAT, Iterator(static_cast<NodePtr>(p->next)) };
 
-        insertUniqueNode(idx, node);
+        auto it = insertUniqueNode(idx, node);
 
-        return { OperatorStatus::OPERATOR_SUCCESS, Iterator(node) };
+        return { OperatorStatus::OPERATOR_SUCCESS, it };
     }
 
     std::pair <OperatorStatus, size_t> erase (const _Key &key)
@@ -286,10 +312,9 @@ public:
         auto p = findBeforeNode(idx, key, hashCode);
         if (!p) return { OperatorStatus::FAILURE_KEY_NOT_DEFINED, 0 };
 
-        p->next = p->next->next;
-
-        hashTableNodeAllocator.deallocateNode();
-        --elementCount;
+        auto old = static_cast<NodePtr>(p->next);
+        eraseNodeNext(p);
+        hashTableNodeAllocator.deallocateNode(old);
 
         return { status, 1 };
     }
@@ -298,7 +323,7 @@ public:
         if (empty())
             return { OperatorStatus::FAILURE_KEY_NOT_DEFINED, end() };
 
-        auto node = it.operator->();
+        auto node = it.node;
         size_t idx = getHashIndex(*node);
         NodeBasePtr prevPtr = findBeforeNode(idx, node);
 
@@ -348,7 +373,7 @@ public:
         if (p)
             return Iterator(static_cast<NodePtr>(p->next));
 
-        return Iterator(p);
+        return end();
     }
 
     inline size_t size () const noexcept
@@ -415,6 +440,21 @@ public:
         return Iterator(nullptr);
     }
 
+    inline _Val &operator[] (const _Key &key) noexcept
+    {
+        size_t hashCode = getHash(key);
+        size_t idx = getHashIndex(hashCode);
+        auto node = findBeforeNode(idx, key, hashCode);
+
+        if (node)
+            return static_cast<NodePtr>(node->next)->node.second;
+
+        auto newNode = hashTableNodeAllocator.allocateNode(key, _Val {});
+        auto it = insertUniqueNode(idx, newNode);
+
+        return it->second;
+    }
+
 private:
     inline size_t getHash (const _Key &key) const noexcept
     {
@@ -474,6 +514,13 @@ private:
 
         // 插入
         insertBucketBegin(idx, tableNode);
+    }
+
+    inline void eraseNodeNext (NodeBasePtr node)
+    {
+        node->next = node->next->next;
+
+        --elementCount;
     }
 
     void insertBucketBegin (size_t idx, NodePtr node)
