@@ -136,6 +136,7 @@ public:
     class _HashTableIterator : Utils::AllDefaultCopy
     {
         friend IncrementallyHashTable <_Key, _Val, _Hash, _Pred, _Alloc>;
+        friend HashTable;
     public:
         explicit _HashTableIterator (NodePtr node)
             : node(node) {}
@@ -266,7 +267,9 @@ public:
         elementCount = rhs.elementCount;
         bucketCount = rhs.bucketCount;
         buckets = rhs.buckets;
-        _begin = rhs._begin;
+        _begin.next = rhs._begin.next;
+        // 修改头节点 指向当前hashTable的_begin
+        buckets[getHashIndex(*static_cast<NodePtr>(_begin.next))] = &_begin;
 
         rhs.elementCount = 0;
         rhs.bucketCount = 0;
@@ -302,20 +305,17 @@ public:
     {
         if (empty())
             return { OperatorStatus::FAILURE_KEY_NOT_DEFINED, 0 };
-        auto status = checkNeedReHash(-1);
-        if (status == OperatorStatus::FAILURE_NEED_EXPAND && !autoReserve)
-            return { status, 0 };
 
         size_t hashCode = getHash(key);
         size_t idx = getHashIndex(hashCode);
 
-        auto p = findBeforeNode(idx, key, hashCode);
-        if (!p) return { OperatorStatus::FAILURE_KEY_NOT_DEFINED, 0 };
+        auto prev = findBeforeNode(idx, key, hashCode);
+        if (!prev) return { OperatorStatus::FAILURE_KEY_NOT_DEFINED, 0 };
 
-        auto old = static_cast<NodePtr>(p->next);
-        eraseNodeNext(p);
-        hashTableNodeAllocator.deallocateNode(old);
+        auto node = static_cast<NodePtr>(prev->next);
+        erasePrevNode(idx, prev, node);
 
+        auto status = checkNeedReHash(-1);
         return { status, 1 };
     }
     std::pair <OperatorStatus, Iterator> erase (Iterator it)
@@ -327,26 +327,7 @@ public:
         size_t idx = getHashIndex(*node);
         NodeBasePtr prevPtr = findBeforeNode(idx, node);
 
-        size_t nextIdx = it->next == nullptr ? 0 : getHashIndex(*it->getNext());
-        // 即 prevPtr->getNext() == it.node
-        if (prevPtr == buckets[idx])
-        {
-            // 如果删除的节点为最后一个节点，或删除的节点next节点所在下标 != 删除节点的下标
-            if (!prevPtr->next || nextIdx != idx)
-                removeBucketBegin(idx, it->getNext(), nextIdx);
-        }
-        else if (it->next)
-        {
-            // 删除的节点next节点所在下标 != 删除节点的下标
-            if (nextIdx != idx)
-                // 修改buckets[nextIdx]指向删除节点的前一个节点
-                buckets[nextIdx] = prevPtr;
-        }
-
-        prevPtr->next = it->next;
-        hashTableNodeAllocator.deallocateNode(node);
-        --elementCount;
-
+        erasePrevNode(idx, prevPtr, node);
         // 删除不做强制缩容
         auto status = checkNeedReHash(-1);
         return { status, Iterator(static_cast<NodePtr>(prevPtr->next)) };
@@ -460,7 +441,7 @@ private:
     {
         return _Hash {}(key);
     }
-    inline size_t getHash (const NodePtr p) const noexcept
+    inline size_t getHash (NodePtr p) const noexcept
     {
         return _Hash {}(ExtractKey {}(p->node));
     }
@@ -516,13 +497,6 @@ private:
         insertBucketBegin(idx, tableNode);
     }
 
-    inline void eraseNodeNext (NodeBasePtr node)
-    {
-        node->next = node->next->next;
-
-        --elementCount;
-    }
-
     void insertBucketBegin (size_t idx, NodePtr node)
     {
         // 如果当前slot已经有元素，头插
@@ -544,6 +518,30 @@ private:
 
             buckets[idx] = &_begin;
         }
+    }
+
+    void erasePrevNode (size_t idx, NodeBasePtr prevPtr, NodePtr node)
+    {
+        size_t nextIdx = node->next == nullptr ? 0 : getHashIndex(*node->getNext());
+        // 即 prevPtr->getNext() == node ，node 为第一个节点
+        if (prevPtr == buckets[idx])
+        {
+            // 如果删除的节点为最后一个节点，或删除的节点next节点所在下标 != 删除节点的下标
+            // 需要修改buckets[idx] = nullptr , 以及buckets[nextIdx]的头节点(prev)
+            if (!prevPtr->next || nextIdx != idx)
+                removeBucketBegin(idx, node->getNext(), nextIdx);
+        }
+        else if (node->next)
+        {
+            // 删除的节点next节点所在下标 != 删除节点的下标
+            if (nextIdx != idx)
+                // 修改buckets[nextIdx]指向删除节点的前一个节点
+                buckets[nextIdx] = prevPtr;
+        }
+
+        prevPtr->next = node->next;
+        hashTableNodeAllocator.deallocateNode(node);
+        --elementCount;
     }
 
     void removeBucketBegin (size_t idx, NodePtr next, size_t nextIdx)

@@ -1,6 +1,7 @@
 //
 // Created by Yoshiki on 2023/8/3.
 //
+#include "util/random.h"
 #include "kv-store.h"
 
 class A
@@ -16,27 +17,91 @@ class B : public A
 };
 int main ()
 {
-    // auto c = df.begin();
-    HashTable <std::string, int> cc;
-    cc.emplace("dsa", 1123);
-    cc.emplace("cdsa", 11423);
+    IncrementallyHashTable <std::string, std::string> map;
 
-    // setbuf(stdout, nullptr);
-    // Tcp <> tcpServer(3000);
-    IncrementallyHashTable <int, int> df;
-    for (int i = 0; i < 20; ++i)
+    std::unordered_map <int, std::pair <std::string, std::string>> dd;
+    std::string key, value;
+    std::string keys[] {
+        "YprjyEn",
+        "nQimL",
+        "gCBwIl",
+        "dGyuJe",
+        "jCRMXVlBCE",
+        "JOSRc",
+        "CAubFyNr",
+        "MnzNVBQHU",
+        "mqvcwFeFCX",
+        "Wbfocp",
+        "rbBZg",
+        "UdJQqj",
+        "AGCUrrPPo",
+        "JiePD",
+        "uXsBIFFSTD",
+        "vfwcuWkH",
+        "GRgWjy",
+        "LCUylx",
+        "ZDKcgI",
+        "afOLiJmr",
+        "iWqCM",
+        "GnXjeNpzU",
+        "ojmKyGZLA",
+        "KatVXmy",
+        "GcpEpJ",
+        "tbcqfksv",
+        "qXWzzhsWZ",
+        "NfcmVdZ",
+        "mpgqKsED",
+        "dkGwTrFjOM",
+        "GLaRtmhGZ",
+        "vaRYmUPbxa"
+    };
+    std::string values[] {
+        "NeXBbWNS",
+        "riUDSgA",
+        "uFshTbh",
+        "RelJIPaRcl",
+        "BFWkqeg",
+        "tssjHCF",
+        "cVguMyA",
+        "muJRDHe",
+        "ShbCUaWGz",
+        "rkxxVXIY",
+        "krBWldRfVY",
+        "sjwBhECeO",
+        "zTYMgvBdCi",
+        "cjcYg",
+        "WPvokCGk",
+        "Yyitf",
+        "vGaHUK",
+        "jtVMvfXgXX",
+        "FVYplBq",
+        "dwFzsgUdLk",
+        "lmgJE",
+        "BvDgx",
+        "kpSvxiYOSp",
+        "jXJqU",
+        "AoKoUapsW",
+        "cKQiLNIY",
+        "AEDJt",
+        "cGqqODT",
+        "aMahjJf",
+        "lbmWp",
+        "UiydBju",
+        "YphsPbIM"
+    };
+    for (int i = 0; i < 200; ++i)
     {
-        df.emplace(i, i);
+        key = Utils::getRandomStr(5, 10);
+        value = Utils::getRandomStr(5, 10);
+        dd[i] = { key, value };
+        map.emplace(key, value);
+        // map.emplace(keys[i], values[i]);
     }
 
-    df.erase(5);
-    df.erase(3);
-    auto dd = df.find(1);
-
-    for (const auto &v: df)
-    {
-        std::cout << "dddd : " << v.first << std::endl;
-    }
+    size_t i = 0;
+    for (const auto &v : map)
+        std::cout << i++ << "\t" << v.first << " : " << v.second << std::endl;
+    std::cout << std::flush;
 
     // tcpServer.mainLoop();
     return 0;

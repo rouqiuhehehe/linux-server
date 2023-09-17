@@ -5,18 +5,8 @@
 #ifndef LINUX_SERVER_LIB_INCLUDE_UTIL_H_
 #define LINUX_SERVER_LIB_INCLUDE_UTIL_H_
 
-#define UUID_FILE_PATH "/proc/sys/kernel/random/uuid"
-#define UUID_STR_LEN 37
-
 #ifdef __cplusplus
 #include <cstdint>
-
-#include <locale>
-#include <codecvt>
-#include <random>
-#include <fstream>
-#include <cstring>
-#include <iostream>
 #include <arpa/inet.h>
 #include <execinfo.h>
 #include "printf-color.h"
@@ -63,32 +53,6 @@ namespace Utils
         uint16_t port = ntohs(sockaddrIn.sin_port);
 
         return std::string(ip) + ":" + std::to_string(port);
-    }
-    inline std::string getUuid ()
-    {
-        std::ifstream ifStream(UUID_FILE_PATH);
-        if (ifStream.is_open())
-        {
-            char uuid[UUID_STR_LEN];
-            ifStream.get(uuid, UUID_STR_LEN);
-
-            if (ifStream.gcount() != UUID_STR_LEN - 1)
-            {
-                std::cerr << "create uuid length error, need 36, real " << ifStream.gcount()
-                          << std::endl;
-                ifStream.close();
-                return {};
-            }
-
-            ifStream.close();
-            return uuid;
-        }
-        else
-        {
-            std::cerr << "can't open the file " UUID_FILE_PATH ", error str : "
-                      << strerror(errno) << std::endl;
-            return {};
-        }
     }
 
     template <class T>
@@ -155,26 +119,6 @@ private:
         NonAbleAllCopy () = default;
         ~NonAbleAllCopy () noexcept = default;
     };
-
-    inline int getRandomNum (int a, int b)
-    {
-        static std::random_device device;
-        static std::default_random_engine engine(device());
-
-        return std::uniform_int_distribution <int>(a, b)(engine);
-    }
-
-    inline std::string getRandomChinese ()
-    {
-        int seek = getRandomNum(0, 0x9fa5 - 0x4e00 + 1);
-        // 随机生成一个中文字符的 Unicode 值
-        int unicode = 0x4e00 + seek % (0x9fa5 - 0x4e00 + 1);
-
-        static std::wstring_convert <std::codecvt_utf8 <wchar_t>, wchar_t> utf8_converter;
-        std::string uft8Str = utf8_converter.to_bytes(unicode);
-
-        return uft8Str;
-    }
 #endif
 }
 
