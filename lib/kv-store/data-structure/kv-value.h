@@ -4,11 +4,15 @@
 
 #ifndef LINUX_SERVER_LIB_KV_STORE_KV_VALUE_H_
 #define LINUX_SERVER_LIB_KV_STORE_KV_VALUE_H_
+#include "kv-incrementally-hash.h"
 #include <string>
 #include <chrono>
 #include <sstream>
 #include "util/events-observer.h"
 #include "util/util.h"
+
+#define MAX_EPOLL_ONCE_NUM 1024
+#define MESSAGE_SIZE_MAX 65535
 
 #define EXTRA_PARAMS_NX "nx"
 #define EXTRA_PARAMS_XX "xx"
@@ -20,20 +24,48 @@
 #define MESSAGE_OK "OK"
 #define ERROR_MESSAGE_HELPER(str) "(error) " str
 
+template <class _Key, class _Val>
+using KvHashTable = IncrementallyHashTable <_Key, _Val>;
+
 using KeyType = std::string;
 using IntegerType = long long;
 using FloatType = double;
+using ValueType = std::string;
+
+template <class T>
+using ArrayType = std::vector <T>;
+
 enum class StructType { NIL = -1, STRING, LIST, HASH, SET, ZSET, END };
 enum EventType { ADD_KEY, RESET_EXPIRE, DEL_KEY };
 using EventsObserverType = EventsObserver <int>;
 
 typedef struct
 {
-    std::string command;
-    std::string key;
-    std::vector <std::string> params;
+    KeyType command;
+    KeyType key;
+    ArrayType <ValueType> params;
+
+    inline ValueType toString () const noexcept
+    {
+        ValueType str;
+
+        str += command;
+        str += ' ';
+        str += key;
+        str += ' ';
+        if (!params.empty())
+        {
+            for (auto &s : params)
+            {
+                str += s;
+                str += ' ';
+            }
+        }
+        str.pop_back();
+
+        return str;
+    }
 } CommandParams;
-using ValueType = std::string;
 struct StringValueType
 {
     enum class SetModel
@@ -142,7 +174,7 @@ struct ResValueType : Utils::AllDefaultCopy
 
     void setErrorStr (const CommandParams &commandParams, ErrorType type)
     {
-        static char msg[128];
+        static char msg[MESSAGE_SIZE_MAX];
         static std::stringstream paramsStream;
         model = ReplyModel::REPLY_ERROR;
 
@@ -292,9 +324,60 @@ struct ResValueType : Utils::AllDefaultCopy
         model = ReplyModel::REPLY_ARRAY;
     }
 
+    inline void clear () noexcept
+    {
+        value.clear();
+        elements.clear();
+        model = ReplyModel::REPLY_UNKNOWN;
+    }
+
+    std::string toString ()
+    {
+        static std::stringstream stringFormatter;
+
+        if (model == ResValueType::ReplyModel::REPLY_ARRAY)
+            stringFormatter.str("");
+        return formatResValueRecursive(stringFormatter);
+    }
+
     ValueType value;
     ReplyModel model = ReplyModel::REPLY_UNKNOWN;
     std::vector <ResValueType> elements {};
+
+private:
+    std::string formatResValueRecursive (std::stringstream &stringFormatter) //NOLINT
+    {
+        std::string resMessage;
+        int idx = 0;
+        switch (model)
+        {
+            case ResValueType::ReplyModel::REPLY_UNKNOWN:
+                break;
+            case ResValueType::ReplyModel::REPLY_INTEGER:
+                resMessage = "(integer) ";
+                resMessage += value;
+                break;
+            case ResValueType::ReplyModel::REPLY_STATUS:
+            case ResValueType::ReplyModel::REPLY_NIL:
+            case ResValueType::ReplyModel::REPLY_ERROR:
+            case ResValueType::ReplyModel::REPLY_STRING:
+                resMessage = value;
+                break;
+            case ResValueType::ReplyModel::REPLY_ARRAY:
+                if (elements.empty())
+                {
+                    resMessage = "(empty array)";
+                    break;
+                }
+                for (auto &v : elements)
+                    stringFormatter << ++idx << ") \""
+                                    << v.formatResValueRecursive(stringFormatter) << std::endl;
+                resMessage = stringFormatter.str();
+                break;
+        }
+
+        return resMessage;
+    }
 };
 
 struct EventObserverParams

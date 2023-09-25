@@ -8,19 +8,17 @@
 #include <algorithm>
 #include "util/string-helper.h"
 #include "util/math-helper.h"
-#include "kv-value.h"
-#include <unordered_map>
-#include "command-structs/kv-command-common.h"
-#include "command-structs/kv-string-command.h"
-#include "command-structs/kv-hash-command.h"
-
+#include "../data-structure/kv-value.h"
+#include "kv-command-common.h"
+#include "kv-string-command.h"
+#include "kv-hash-command.h"
 
 class BaseCommandHandler : public CommandCommon
 {
 protected:
-    using ExpireMapType = std::unordered_map <KeyType,
-                                              std::pair <StructType, std::chrono::milliseconds>>;
-    using AllKeyMapType = std::unordered_map <KeyType, StructType>;
+    using ExpireMapType = KvHashTable <KeyType,
+                                       std::pair <StructType, std::chrono::milliseconds>>;
+    using AllKeyMapType = KvHashTable <KeyType, StructType>;
     enum class Commands
     {
         NIL = -1,
@@ -175,27 +173,36 @@ public:
 
         return res;
     }
-    static CommandParams splitCommandParams (const std::string &str)
+    static CommandParams splitCommandParams (const ResValueType &recvValue)
     {
-        auto commandVector = Utils::StringHelper::stringSplit(str, ' ');
-        auto command = commandVector[0];
-        // 转成小写
-        Utils::StringHelper::stringTolower(command);
-
-        std::string key;
-        if (commandVector.size() > 1)
+        // auto commandVector = Utils::StringHelper::stringSplit(str, ' ');
+        // auto command = commandVector[0];
+        // // 转成小写
+        // Utils::StringHelper::stringTolower(command);
+        //
+        // std::string key;
+        // if (commandVector.size() > 1)
+        // {
+        //     key = commandVector[1];
+        //     commandVector.erase(commandVector.begin(), commandVector.begin() + 2);
+        // }
+        // else
+        //     commandVector.clear();
+        CommandParams commandParams;
+        commandParams.command = recvValue.elements[0].value;
+        ValueType key;
+        if (recvValue.elements.size() > 1)
+            commandParams.key = recvValue.elements[1].value;
+        if (recvValue.elements.size() > 2)
         {
-            key = commandVector[1];
-            commandVector.erase(commandVector.begin(), commandVector.begin() + 2);
+            commandParams.params.reserve(recvValue.elements.size());
+            for (size_t i = 2; i < recvValue.elements.size(); ++i)
+            {
+                commandParams.params.emplace_back(recvValue.elements[i].value);
+            }
         }
-        else
-            commandVector.clear();
 
-        return {
-            .command = command,
-            .key = key,
-            .params = std::move(commandVector)
-        };
+        return commandParams;
     }
 
     void checkExpireKeys ()
@@ -301,7 +308,8 @@ protected:
             return;
 
         KeyType key = commandParams.key;
-        size_t i = 0, count = 0;
+        size_t i = 0;
+        IntegerType count = 0;
         AllKeyMapType::iterator it;
         auto end = keyOfStructType.end();
         do
@@ -463,6 +471,8 @@ private:
 
         keyOfStructType.erase(it);
         switchDelCommon(it->first, it->second);
+
+        return 1;
     }
 
     ExpireMapType::iterator delKeyEvent (ExpireMapType::iterator &it)

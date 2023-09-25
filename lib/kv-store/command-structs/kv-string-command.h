@@ -409,7 +409,7 @@ private:
         }
     }
 
-    std::unordered_map <KeyType, ValueType> keyValues {};
+    KvHashTable <KeyType, ValueType> keyValues {};
     static constexpr const char *commands[]
         { "set", "get", "incr", "incrby", "incrbyfloat", "decr", "decrby", "append", "mset" };
 

@@ -5,21 +5,20 @@
 #ifndef LINUX_SERVER_LIB_KV_STORE_EPOLL_H_
 #define LINUX_SERVER_LIB_KV_STORE_EPOLL_H_
 
+#include "command-structs/kv-command.h"
+#include <unistd.h>
 #include <functional>
 #include <sys/epoll.h>
 #include "printf-color.h"
 #include <thread>
-#include <fcntl.h>
 #include <list>
 #include <algorithm>
 #include <mutex>
 #include <atomic>
-#include "kv-command.h"
+#include "kv-protocol.h"
+#include "util/net.h"
 
-#define MAX_EPOLL_ONCE_NUM 1024
-#define MESSAGE_SIZE_MAX 65535
-
-#define SET_COMMON_EPOLL_FLAG(event) (event | EPOLLHUP | EPOLLRDHUP)
+#define SET_COMMON_EPOLL_FLAG(event) ((event) | EPOLLHUP | EPOLLRDHUP)
 
 template <int>
 class Tcp;
@@ -42,10 +41,9 @@ struct SockEpollPtr
         : fd(fd), sockaddr(sockaddrIn) {}
     int fd;
     struct sockaddr_in sockaddr;
-    ResValueType resValue;
-    CommandParams commandParams;
+    ResValueType resValue {};
+    CommandParams commandParams {};
     QUEUE_STATUS status = STATUS_LISTEN;
-    std::string msg {};
 };
 struct SockEvents
 {
@@ -305,49 +303,41 @@ private:
     }
     void recvCallback (ParamsType &fnParams) // NOLINT
     {
-        int ret;
-        char message[MESSAGE_SIZE_MAX];
-        do
-        {
-            ret = ::recv(fnParams.fd, message, MESSAGE_SIZE_MAX, 0);
-            // 不做处理  留给mainReactor去处理
-            if (ret < 0)
-            {
-                if (errno == EINTR)
-                    continue;
-                PRINT_ERROR("recv error : %s", std::strerror(errno));
-                fnParams.status = SockEpollPtr::STATUS_RECV_BAD;
-                break;
-            }
-            else if (ret == 0)
-            {
-                PRINT_INFO("pipe close : %s, sockfd : %d",
-                           Utils::getIpAndHost(fnParams.sockaddr).c_str(),
-                           fnParams.fd);
-                fnParams.status = SockEpollPtr::STATUS_RECV_BAD;
-                break;
-            }
-            else
-            {
-                message[ret] = '\0';
-                PRINT_INFO("get client command : %s,  addr : %s, sockfd : %d, thread : %lu",
-                           message,
-                           Utils::getIpAndHost(fnParams.sockaddr).c_str(),
-                           fnParams.fd,
-                           pthread_self());
+        KvProtocol recvProtocol(fnParams.fd);
 
-                fnParams.msg = message;
-                // 命令解析
-                fnParams.commandParams = CommandHandler::splitCommandParams(fnParams.msg);
-                fnParams.status = SockEpollPtr::STATUS_RECV_DOWN;
-            }
-        } while (ret <= 0);
+        ResValueType recvValue;
+        int ret = recvProtocol.decodeRecv(recvValue);
+        // 不做处理  留给mainReactor去处理
+        if (ret < 0)
+        {
+            PRINT_ERROR("recv error : %s", std::strerror(errno));
+            fnParams.status = SockEpollPtr::STATUS_RECV_BAD;
+        }
+        else if (ret == 0)
+        {
+            PRINT_INFO("pipe close : %s, sockfd : %d",
+                Utils::getIpAndHost(fnParams.sockaddr).c_str(),
+                fnParams.fd);
+            fnParams.status = SockEpollPtr::STATUS_RECV_BAD;
+        }
+        else
+        {
+            PRINT_INFO("get client command : %s,  addr : %s, sockfd : %d, thread : %lu",
+                fnParams.commandParams.toString().c_str(),
+                Utils::getIpAndHost(fnParams.sockaddr).c_str(),
+                fnParams.fd,
+                pthread_self());
+
+            // 命令解析
+            fnParams.commandParams = CommandHandler::splitCommandParams(recvValue);
+            fnParams.status = SockEpollPtr::STATUS_RECV_DOWN;
+        }
     }
 
     void sendCallback (ParamsType &fnParams) // NOLINT
     {
         int ret;
-        std::string resMessage = formatResValue(fnParams.resValue);
+        std::string resMessage = fnParams.resValue.toString();
 
         do
         {
@@ -364,8 +354,8 @@ private:
             else if (ret == 0)
             {
                 PRINT_INFO("pipe close : %s, sockfd : %d",
-                           Utils::getIpAndHost(fnParams.sockaddr).c_str(),
-                           fnParams.fd);
+                    Utils::getIpAndHost(fnParams.sockaddr).c_str(),
+                    fnParams.fd);
                 fnParams.status = SockEpollPtr::STATUS_SEND_BAD;
                 break;
             }
@@ -373,50 +363,16 @@ private:
             {
                 PRINT_INFO(
                     "reply for command \"%s\", message : %s, addr : %s, sockfd : %d, thread : %lu",
-                    fnParams.msg.c_str(),
+                    fnParams.commandParams.toString().c_str(),
                     resMessage.c_str(),
                     Utils::getIpAndHost(fnParams.sockaddr).c_str(),
                     fnParams.fd,
                     pthread_self());
 
+                fnParams.resValue.clear();
                 fnParams.status = SockEpollPtr::STATUS_SEND_DOWN;
             }
         } while (ret <= 0);
-    }
-
-    static std::string formatResValue (const ResValueType &resValue)
-    {
-        std::string resMessage;
-        int idx = 0;
-        static std::stringstream stringFormatter;
-        switch (resValue.model)
-        {
-            case ResValueType::ReplyModel::REPLY_UNKNOWN:
-                break;
-            case ResValueType::ReplyModel::REPLY_INTEGER:
-                resMessage = "(integer) ";
-                resMessage += resValue.value;
-                break;
-            case ResValueType::ReplyModel::REPLY_STATUS:
-            case ResValueType::ReplyModel::REPLY_NIL:
-            case ResValueType::ReplyModel::REPLY_ERROR:
-            case ResValueType::ReplyModel::REPLY_STRING:
-                resMessage = resValue.value;
-                break;
-            case ResValueType::ReplyModel::REPLY_ARRAY:
-                if (resValue.elements.empty())
-                {
-                    resMessage = "(empty array)";
-                    break;
-                }
-                stringFormatter.str("");
-                for (auto &v : resValue.elements)
-                    stringFormatter << ++idx << ") \"" << formatResValue(v) << std::endl;
-                resMessage = std::move(stringFormatter.str());
-                break;
-        }
-
-        return resMessage;
     }
 
     static constexpr int defaultLoopNum = 1000000;
@@ -476,8 +432,8 @@ public:
                 if (event->events & EPOLLRDHUP)
                 {
                     PRINT_INFO("对端关闭， addr : %s , fd : %d",
-                               Utils::getIpAndHost(epollPtr->sockaddr).c_str(),
-                               epollPtr->fd);
+                        Utils::getIpAndHost(epollPtr->sockaddr).c_str(),
+                        epollPtr->fd);
                     closeSock(*epollPtr);
                 }
                 else if (event->events & EPOLLHUP)
@@ -524,14 +480,18 @@ private:
             return;
         }
 
-        setSockReuseAddr(fd);
+        // int bufferSize = MESSAGE_SIZE_MAX;
+        // socklen_t bufferSizeLen = sizeof(bufferSize);
+        // setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &bufferSize, bufferSizeLen);
+        Utils::Net::setSockReuseAddr(fd);
+        Utils::Net::setSockNonblock(fd);
         auto *sockParams = new SockEpollPtr(fd, clientAddr);
         epollAddEvent(*sockParams);
 
         PRINT_INFO("accept by %s:%d , fd : %d",
-                   inet_ntoa(clientAddr.sin_addr),
-                   ntohs(clientAddr.sin_port),
-                   fd);
+            inet_ntoa(clientAddr.sin_addr),
+            ntohs(clientAddr.sin_port),
+            fd);
     }
     void recvCallback (ParamsType &fnParams)
     {
@@ -569,7 +529,7 @@ private:
         sendAfterHandler();
     }
 
-    inline void distributeTask (const int &num)
+    inline void distributeTask (size_t num)
     {
         static SockfdQueueType::iterator nextIt;
         // 分发任务
@@ -588,7 +548,7 @@ private:
         ioHandler();
 
         while (sockfdQueue().size() != num)
-            std::this_thread::sleep_for(std::chrono::microseconds { 100 });
+            std::this_thread::sleep_for(std::chrono::microseconds { 10 });
 
         // 让io线程休眠
         mutex.lock();
@@ -598,9 +558,6 @@ private:
     {
         for (SockEpollPtr *sockEpollPtr : sockfdQueue())
         {
-            // 处理命令
-            PRINT_INFO("get message : %s", sockEpollPtr->msg.c_str());
-
             sockEpollPtr->resValue = commandHandler.handlerCommand(sockEpollPtr->commandParams);
             epollModEvent(*sockEpollPtr, SET_COMMON_EPOLL_FLAG(EPOLLOUT));
         }
@@ -626,18 +583,12 @@ private:
     inline IoReactor &getRandomReactor ()
     {
         static size_t index = 0;
-        size_t randomReactor = ++index % (IoThreadNum + 1);
+        size_t randomReactor = index++ % (IoThreadNum + 1);
         if (randomReactor == 4)
         {
             return *this;
         }
         return ioReactor[randomReactor];
-    }
-
-    static inline void setSockReuseAddr (int sockfd)
-    {
-        int opt = 1;
-        setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (char *)&opt, sizeof(int));
     }
 
 private:
@@ -646,8 +597,8 @@ private:
     int listenfd;
     struct sockaddr_in clientAddr {};
     std::mutex mutex;
-    int onceLoopRecvSum = 0;
-    int onceLoopSendSum = 0;
+    size_t onceLoopRecvSum = 0;
+    size_t onceLoopSendSum = 0;
     CommandHandler commandHandler;
 
     IoReactor ioReactor[IoThreadNum];

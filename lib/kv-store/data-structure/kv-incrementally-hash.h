@@ -30,26 +30,26 @@ public:
         using _HashTable::_HashTableIterator::_HashTableIterator;
         _IncrementallyHashTableIterator (const typename _HashTable::Iterator &rhs) // NOLINT
             : _HashTable::Iterator(rhs) {}
+
+        _IncrementallyHashTableIterator ()
+            : _HashTable::Iterator(nullptr) {}
     };
 
 public:
     using Iterator = _IncrementallyHashTableIterator;
     using ConstIterator = const _IncrementallyHashTableIterator;
+    using iterator = Iterator;
 
     IncrementallyHashTable ()
     {
         // 先进行一次扩容，HashTable实现默认是不进行第一次扩容的
         h1.reHash(h1.needRehash(11).second);
+
+        initPrivate();
     }
     ~IncrementallyHashTable () noexcept
     {
-        if (status == ReHashStatus::DEFAULT)
-            h1.clear();
-        else
-        {
-            h1.elementCount = 0;
-            h2.clear();
-        }
+        clear();
     };
 
     IncrementallyHashTable (const IncrementallyHashTable &rhs)
@@ -57,19 +57,24 @@ public:
         this->operator=(rhs);
     }
 
+    IncrementallyHashTable (IncrementallyHashTable &&rhs) noexcept
+    {
+        this->operator=(std::move(rhs));
+    }
+
     IncrementallyHashTable &operator= (const IncrementallyHashTable &rhs)
     {
         if (this == &rhs)
             return *this;
 
-        h1(rhs.h1);
-        h2(rhs.h2);
+        h1 = rhs.h1;
+        h2 = rhs.h2;
         status = rhs.status;
 
         typename _HashTable::NodeBasePtr node;
         if (rhs.rehashMoveNextNode)
         {
-            size_t idx = rhs.h1.getHash(*rhs.rehashMoveNextNode);
+            size_t idx = rhs.h1.getHashIndex(*rhs.rehashMoveNextNode);
             node = h1.findBeforeNode(
                 idx,
                 rhs.rehashMoveNextNode->node.first,
@@ -85,11 +90,13 @@ public:
                 rehashMovePrevNode = &h1._begin;
             else
             {
-                size_t idx = rhs.h1.getHash(*rhs.rehashMovePrevNode);
+                auto nodePtr = static_cast<typename _HashTable::NodePtr>(rhs.rehashMovePrevNode);
+                size_t idx = rhs.h1
+                                .getHashIndex(*nodePtr);
                 node = h1.findBeforeNode(
                     idx,
-                    rhs.rehashMovePrevNode->node.first,
-                    rhs.rehashMovePrevNode->hashCode
+                    nodePtr->node.first,
+                    nodePtr->hashCode
                 );
                 if (node)
                     rehashMovePrevNode = node->next;
@@ -98,8 +105,23 @@ public:
 
     }
 
+    IncrementallyHashTable &operator= (IncrementallyHashTable &&rhs) noexcept
+    {
+        if (this == &rhs)
+            return *this;
+        h1 = std::move(rhs.h1);
+        h2 = std::move(rhs.h2);
+
+        status = rhs.status;
+        rehashMoveNextNode = rhs.rehashMoveNextNode;
+        rehashMovePrevNode = rhs.rehashMovePrevNode;
+
+        rhs.initPrivate();
+        return *this;
+    }
+
     template <class ...Arg>
-    std::pair <bool, Iterator> emplace (Arg &&...arg)
+    std::pair <Iterator, bool> emplace (Arg &&...arg)
     {
         moveOneNode();
         if (status == ReHashStatus::DEFAULT)
@@ -108,32 +130,32 @@ public:
             if (res.first != _HashTable::OperatorStatus::OPERATOR_SUCCESS)
             {
                 if (res.first == _HashTable::OperatorStatus::FAILURE_KEY_REPEAT)
-                    return { false, end() };
+                    return { end(), false };
                 else if (res.first == _HashTable::OperatorStatus::FAILURE_NEED_EXPAND)
                 {
                     beginMoveNode(ReHashStatus::RE_HASHING_EXPAND);
                     return {
-                        true,
-                        h2.emplace(std::forward <Arg>(arg)...).second
+                        h2.emplace(std::forward <Arg>(arg)...).second,
+                        true
                     };
                 }
             }
-            return { true, res.second };
+            return { res.second, true };
         }
         else if (status == ReHashStatus::RE_HASHING_EXPAND)
-            return { true, h2.emplace(std::forward <Arg>(arg)...).second };
+            return { h2.emplace(std::forward <Arg>(arg)...).second, true };
         else if (status == ReHashStatus::RE_HASHING_SCALE_DOWN)
         {
             auto res = h2.emplace(std::forward <Arg>(arg)...);
             if (res.first == _HashTable::OperatorStatus::FAILURE_KEY_REPEAT)
-                return { false, end() };
+                return { end(), false };
             else if (res.first == _HashTable::OperatorStatus::FAILURE_NEED_EXPAND)
                 PRINT_ERROR("缩容时发生需要扩容事件，重设缩容比例");
 
-            return { true, res.second };
+            return { res.second, true };
         }
 
-        return { false, end() };
+        return { end(), false };
     }
 
     Iterator find (const _Key &key) noexcept
@@ -149,6 +171,19 @@ public:
             else
                 return res;
         }
+    }
+
+    inline void clear () noexcept
+    {
+        if (status == ReHashStatus::DEFAULT)
+            h1.clear();
+        else
+        {
+            h2.clear();
+            h1.clear();
+        }
+
+        initPrivate();
     }
 
     std::size_t erase (const _Key &key)
@@ -188,13 +223,13 @@ public:
             if (res.first == _HashTable::OperatorStatus::FAILURE_NEED_SCALE_DOWN)
                 beginMoveNode(ReHashStatus::RE_HASHING_SCALE_DOWN);
 
-            return res.second;
+            return { res.second };
         }
         else
         {
-            auto res = h2.erase((*it).first);
+            auto res = h2.erase(it);
             if (res.first == _HashTable::OperatorStatus::FAILURE_KEY_NOT_DEFINED)
-                return { h1.erase(it).second };
+                return end();
 
             return { res.second };
         }
@@ -305,12 +340,19 @@ private:
         h1 = std::move(h2);
     }
 
+    inline void initPrivate () noexcept
+    {
+        rehashMoveNextNode = nullptr;
+        rehashMovePrevNode = nullptr;
+        status = ReHashStatus::DEFAULT;
+    }
+
 private:
     _HashTable h1;
     // rehash table
     _HashTable h2;
     typename _HashTable::NodeBasePtr rehashMovePrevNode;
     typename _HashTable::NodePtr rehashMoveNextNode;
-    ReHashStatus status = ReHashStatus::DEFAULT;
+    ReHashStatus status;
 };
 #endif //LINUX_SERVER_LIB_KV_STORE_KV_INCREMENTALLY_HASH_H_

@@ -5,11 +5,10 @@
 #ifndef LINUX_SERVER_LIB_KV_STORE_KV_TCP_H_
 #define LINUX_SERVER_LIB_KV_STORE_KV_TCP_H_
 
-#include <unistd.h>
+#include "kv-reactor.h"
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include "util/global.h"
-#include "kv-reactor.h"
 
 template <int IoThreadNum = 4>
 class Tcp
@@ -17,7 +16,7 @@ class Tcp
 public:
     explicit Tcp (uint16_t port)
         : sockfd(createTcpServer(port, INADDR_ANY)), reactor(sockfd) {}
-    Tcp (uint16_t port, const std::string &host) // NOLINT
+    Tcp (uint16_t port, const std::string &host)
         : sockfd(createTcpServer(port, inet_addr(host.c_str()))), reactor(sockfd) {}
 
     void mainLoop ()
@@ -30,8 +29,8 @@ private:
     {
         int sockfd = socket(AF_INET, SOCK_STREAM, 0);
         CHECK_RET(sockfd < 3, socket);
-        MainReactor <IoThreadNum>::setSockReuseAddr(sockfd);
-        
+        Utils::Net::setSockReuseAddr(sockfd);
+
         struct sockaddr_in addr {
             .sin_family = AF_INET,
             .sin_port = htons(port),

@@ -357,8 +357,8 @@ private:
     }
 
 private:
-    std::unordered_map <KeyType, HashType> keyValues {};
-    std::unordered_map <KeyType, HashType>::iterator end = keyValues.end();
+    KvHashTable <KeyType, HashType> keyValues {};
+    KvHashTable <KeyType, HashType>::iterator end = keyValues.end();
     HashType defaultHashMap {};
 
     static constexpr const char *commands[] {

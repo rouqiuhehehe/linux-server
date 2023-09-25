@@ -263,7 +263,6 @@ public:
     {
         if (this == &rhs)
             return *this;
-
         elementCount = rhs.elementCount;
         bucketCount = rhs.bucketCount;
         buckets = rhs.buckets;
